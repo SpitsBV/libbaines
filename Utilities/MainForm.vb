@@ -137,7 +137,7 @@ Public Class MainForm
 ByVal e As UnhandledExceptionEventArgs)
         Dim EX As Exception
         EX = e.ExceptionObject
-        If ErrorLog.IsEnabled Then
+        If ErrorLog.IsEnabled AndAlso ErrorLog.FindSqlException(EX) IsNot Nothing Then
             ErrorLog.Report(EX, "Onafgevangen fout (achtergrond)", showMessage:=False)
         Else
             MsgBox(EX.StackTrace)
