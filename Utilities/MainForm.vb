@@ -137,12 +137,20 @@ Public Class MainForm
 ByVal e As UnhandledExceptionEventArgs)
         Dim EX As Exception
         EX = e.ExceptionObject
-        MsgBox(EX.StackTrace)
+        If ErrorLog.IsEnabled Then
+            ErrorLog.Report(EX, "Onafgevangen fout (achtergrond)", showMessage:=False)
+        Else
+            MsgBox(EX.StackTrace)
+        End If
     End Sub
 
     Private Sub ApplicationThreadExceptionHandler(ByVal sender As Object, _
       ByVal e As Threading.ThreadExceptionEventArgs)
-        MsgBox(e.Exception.StackTrace)
+        If ErrorLog.IsEnabled Then
+            ErrorLog.Report(e.Exception, "Onafgevangen fout")
+        Else
+            MsgBox(e.Exception.StackTrace)
+        End If
     End Sub
 
     ''' <summary>
