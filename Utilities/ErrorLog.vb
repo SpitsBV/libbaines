@@ -67,17 +67,44 @@ Public NotInheritable Class ErrorLog
 
     ''' <summary>
     ''' Handles an exception caught by the caller. Returns the foutcode when a log row was written.
+    ''' A non-empty hint is shown as a first paragraph above the text Report shows; it is never logged.
     ''' Never throws.
     ''' </summary>
     Public Shared Function Report(ex As Exception, context As String,
-                                  Optional showMessage As Boolean = True) As Integer?
+                                  Optional showMessage As Boolean = True,
+                                  Optional hint As String = Nothing) As Integer?
+        Dim logId As Integer? = Nothing
+        Dim text As String = Process(ex, context, hint, logId)
+        If showMessage AndAlso text IsNot Nothing Then
+            Try
+                _presenter.Show(text)
+            Catch showEx As Exception
+                Debug.WriteLine("ErrorLog: presenter failed: " & showEx.ToString())
+            End Try
+        End If
+        Return logId
+    End Function
+
+    ''' <summary>
+    ''' Logs like Report but never shows anything: returns the text Report would have shown (with hint),
+    ''' for callers on a worker thread that hand the text to the UI themselves. Nothing when there is
+    ''' nothing to show. Never throws.
+    ''' </summary>
+    Public Shared Function ReportText(ex As Exception, context As String,
+                                      Optional hint As String = Nothing) As String
+        Dim logId As Integer? = Nothing
+        Return Process(ex, context, hint, logId)
+    End Function
+
+    ' Shared path of Report and ReportText: logs when enabled and SQL-related, returns the text to show
+    ' (Nothing when there is none) and the foutcode when a row was written. Never throws.
+    Private Shared Function Process(ex As Exception, context As String, hint As String,
+                                    ByRef logId As Integer?) As String
+        logId = Nothing
         If ex Is Nothing Then Return Nothing
         Try
             Dim sqlEx As SqlException = If(_enabled, FindSqlException(ex), Nothing)
-            If sqlEx Is Nothing Then
-                If showMessage Then _presenter.Show(ex.Message)
-                Return Nothing
-            End If
+            If sqlEx Is Nothing Then Return WithHint(hint, ex.Message)
 
             Dim entry As ErrorLogEntry = BuildEntry(ex, sqlEx, context)
             If _reporting Then
@@ -86,41 +113,37 @@ Public NotInheritable Class ErrorLog
                 Return Nothing
             End If
 
-            Dim textToShow As String
-            Dim logId As Integer? = Nothing
+            Dim text As String
             _reporting = True
             Try
                 Dim result As ErrorLogResult = _writer.Write(entry)
                 logId = result.ErrorLogId
-                textToShow = result.UserMessage & vbCrLf & vbCrLf &
-                             "Foutcode: " & result.ErrorLogId.ToString() &
-                             ". Geef deze code door aan de beheerder."
+                text = result.UserMessage & vbCrLf & vbCrLf &
+                       "Foutcode: " & result.ErrorLogId.ToString() &
+                       ". Geef deze code door aan de beheerder."
             Catch writeEx As Exception
                 Try
                     _fallback.Write(entry.ToString() & Environment.NewLine &
                                     "Logging to the database failed: " & writeEx.ToString())
                 Catch fallbackEx As Exception
-                    ' The fallback file is unavailable too; the user must still be informed below.
+                    ' The fallback file is unavailable too; the user must still be informed.
                     Debug.WriteLine("ErrorLog: fallback failed: " & fallbackEx.ToString())
                 End Try
-                textToShow = If(IsConnectionError(sqlEx), ConnectionFailedText, LogFailedText)
+                text = If(IsConnectionError(sqlEx), ConnectionFailedText, LogFailedText)
             Finally
                 _reporting = False
             End Try
-
-            ' Outside the re-entrancy guard: a modal dialog must not make other failures look like recursion.
-            If showMessage Then
-                Try
-                    _presenter.Show(textToShow)
-                Catch showEx As Exception
-                    Debug.WriteLine("ErrorLog: presenter failed: " & showEx.ToString())
-                End Try
-            End If
-            Return logId
+            Return WithHint(hint, text)
         Catch reportEx As Exception
+            logId = Nothing
             WriteLastResort(ex, context, reportEx)
             Return Nothing
         End Try
+    End Function
+
+    Private Shared Function WithHint(hint As String, text As String) As String
+        If String.IsNullOrEmpty(hint) Then Return text
+        Return hint & vbCrLf & vbCrLf & text
     End Function
 
     ''' <summary>First SqlException in ex, its InnerException chain or AggregateException members.</summary>
