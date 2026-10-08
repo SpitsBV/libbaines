@@ -118,9 +118,20 @@ Friend NotInheritable Class MessageBoxPresenter
 
     Public Sub Show(text As String) Implements IErrorPresenter.Show
         If _uiContext Is Nothing OrElse SynchronizationContext.Current Is _uiContext Then
+            ShowBox(text)
+        Else
+            _uiContext.Post(Sub(state) ShowBox(CStr(state)), text)
+        End If
+    End Sub
+
+    ' MsgBox without a title would caption the dialog with this assembly (Utilities); keep the
+    ' application's name, as the MsgBox call in the application itself did.
+    Private Shared Sub ShowBox(text As String)
+        Dim entry As Reflection.Assembly = Reflection.Assembly.GetEntryAssembly()
+        If entry Is Nothing Then
             MsgBox(text)
         Else
-            _uiContext.Post(Sub(state) MsgBox(CStr(state)), text)
+            MsgBox(text, MsgBoxStyle.OkOnly, entry.GetName().Name)
         End If
     End Sub
 End Class

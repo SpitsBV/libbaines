@@ -86,15 +86,15 @@ Public NotInheritable Class ErrorLog
                 Return Nothing
             End If
 
+            Dim textToShow As String
+            Dim logId As Integer? = Nothing
             _reporting = True
             Try
                 Dim result As ErrorLogResult = _writer.Write(entry)
-                If showMessage Then
-                    _presenter.Show(result.UserMessage & vbCrLf & vbCrLf &
-                                    "Foutcode: " & result.ErrorLogId.ToString() &
-                                    ". Geef deze code door aan de beheerder.")
-                End If
-                Return result.ErrorLogId
+                logId = result.ErrorLogId
+                textToShow = result.UserMessage & vbCrLf & vbCrLf &
+                             "Foutcode: " & result.ErrorLogId.ToString() &
+                             ". Geef deze code door aan de beheerder."
             Catch writeEx As Exception
                 Try
                     _fallback.Write(entry.ToString() & Environment.NewLine &
@@ -103,13 +103,20 @@ Public NotInheritable Class ErrorLog
                     ' The fallback file is unavailable too; the user must still be informed below.
                     Debug.WriteLine("ErrorLog: fallback failed: " & fallbackEx.ToString())
                 End Try
-                If showMessage Then
-                    _presenter.Show(If(IsConnectionError(sqlEx), ConnectionFailedText, LogFailedText))
-                End If
-                Return Nothing
+                textToShow = If(IsConnectionError(sqlEx), ConnectionFailedText, LogFailedText)
             Finally
                 _reporting = False
             End Try
+
+            ' Outside the re-entrancy guard: a modal dialog must not make other failures look like recursion.
+            If showMessage Then
+                Try
+                    _presenter.Show(textToShow)
+                Catch showEx As Exception
+                    Debug.WriteLine("ErrorLog: presenter failed: " & showEx.ToString())
+                End Try
+            End If
+            Return logId
         Catch reportEx As Exception
             WriteLastResort(ex, context, reportEx)
             Return Nothing
