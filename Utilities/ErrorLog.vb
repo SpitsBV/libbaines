@@ -79,7 +79,7 @@ Public NotInheritable Class ErrorLog
             Try
                 _presenter.Show(text)
             Catch showEx As Exception
-                Debug.WriteLine("ErrorLog: presenter failed: " & showEx.ToString())
+                WriteLastResort(ex, context, showEx)
             End Try
         End If
         Return logId
