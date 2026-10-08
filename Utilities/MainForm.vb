@@ -608,7 +608,11 @@ ByVal e As UnhandledExceptionEventArgs)
             Catch ex As Exception
                 'if this occurs with the following message then the connection string is incorrect.
                 '"A network-related or instance-specific error occurred while establishing a connection to SQL Server. The server was not found or was not accessible. Verify that the instance name is correct and that SQL Server is configured to allow remote connections. (provider: SQL Network Interfaces, error: 26 - Error Locating Server/Instance Specified)"}	System.Exception
-                MsgBox("statics.InitConnection " & ex.Message)
+                If ErrorLog.IsEnabled Then
+                    ErrorLog.Report(ex, "MainForm.Init")
+                Else
+                    MsgBox("statics.InitConnection " & ex.Message)
+                End If
             End Try
 
             Try
@@ -664,13 +668,21 @@ ByVal e As UnhandledExceptionEventArgs)
                 SQLParser = New clParseSQL
                 SQLParser.Init()
             Catch ex As Exception
-                MsgBox("UpdateRamState. " & ex.Message)
+                If ErrorLog.IsEnabled Then
+                    ErrorLog.Report(ex, "MainForm.Init")
+                Else
+                    MsgBox("UpdateRamState. " & ex.Message)
+                End If
             End Try
 
         Catch ex As Exception
             'if this occurs with the following message then the connection string is incorrect.
             '"A network-related or instance-specific error occurred while establishing a connection to SQL Server. The server was not found or was not accessible. Verify that the instance name is correct and that SQL Server is configured to allow remote connections. (provider: SQL Network Interfaces, error: 26 - Error Locating Server/Instance Specified)"}	System.Exception
-            MsgBox("FATAL ERROR: Problem reading from database. " & ex.Message)
+            If ErrorLog.IsEnabled Then
+                ErrorLog.Report(ex, "MainForm.Init")
+            Else
+                MsgBox("FATAL ERROR: Problem reading from database. " & ex.Message)
+            End If
             Application.Exit()
         End Try
     End Sub
