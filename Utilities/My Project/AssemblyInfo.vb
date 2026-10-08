@@ -1,5 +1,6 @@
 ﻿Imports System
 Imports System.Reflection
+Imports System.Runtime.CompilerServices
 Imports System.Runtime.InteropServices
 
 ' General Information about an assembly is controlled through the following 
@@ -33,3 +34,4 @@ Imports System.Runtime.InteropServices
 
 <Assembly: AssemblyVersion("1.0.1.22")>
 <Assembly: AssemblyFileVersion("1.0.1.22")>
+<Assembly: InternalsVisibleTo("Utilities.Tests")>
