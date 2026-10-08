@@ -2208,24 +2208,28 @@ Public Class dgColumns
 
             '20091124 RPB added error handling to Handle_DataGridView_RowValidating
             'for cases where data gets truncated.
-            Dim exx As System.Data.SqlClient.SqlException
-            exx = TryCast(ex, System.Data.SqlClient.SqlException)
-            If Not exx Is Nothing Then
-                If exx.ErrorCode = -2146232060 Then     'data would be truncated statement ended.
-                    Dim errorMessages As New StringBuilder()
-                    Dim i As Integer
-                    For i = 0 To exx.Errors.Count - 1
-                        errorMessages.Append("Index #" & i.ToString() & ControlChars.NewLine _
-                            & "Message: " & exx.Errors(i).Message & ControlChars.NewLine _
-                            & "LineNumber: " & exx.Errors(i).LineNumber & ControlChars.NewLine _
-                            & "Source: " & exx.Errors(i).Source & ControlChars.NewLine _
-                            & "Procedure: " & exx.Errors(i).Procedure & ControlChars.NewLine)
-                    Next i
+            If ErrorLog.IsEnabled Then
+                ErrorLog.Report(ex, "dgColumns.Handle_DataGridView_RowValidating")
+            Else
+                Dim exx As System.Data.SqlClient.SqlException
+                exx = TryCast(ex, System.Data.SqlClient.SqlException)
+                If Not exx Is Nothing Then
+                    If exx.ErrorCode = -2146232060 Then     'data would be truncated statement ended.
+                        Dim errorMessages As New StringBuilder()
+                        Dim i As Integer
+                        For i = 0 To exx.Errors.Count - 1
+                            errorMessages.Append("Index #" & i.ToString() & ControlChars.NewLine _
+                                & "Message: " & exx.Errors(i).Message & ControlChars.NewLine _
+                                & "LineNumber: " & exx.Errors(i).LineNumber & ControlChars.NewLine _
+                                & "Source: " & exx.Errors(i).Source & ControlChars.NewLine _
+                                & "Procedure: " & exx.Errors(i).Procedure & ControlChars.NewLine)
+                        Next i
 
-                    MsgBox("EXCEPTION: " & ex.Message)
+                        MsgBox("EXCEPTION: " & ex.Message)
 
-                    'Bit too verbose!
-                    'MsgBox(errorMessages)
+                        'Bit too verbose!
+                        'MsgBox(errorMessages)
+                    End If
                 End If
             End If
 

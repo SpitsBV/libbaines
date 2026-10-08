@@ -1,0 +1,31 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!--
+    CH-227 - unit tests for Utilities.ErrorLog through its Friend test seams
+    (InternalsVisibleTo "Utilities.Tests"). Mirrors UPLUS_GUI.Tests (MSTest, net48).
+  -->
+
+  <PropertyGroup>
+    <TargetFramework>net48</TargetFramework>
+    <RootNamespace>Utilities.Tests</RootNamespace>
+    <AssemblyName>Utilities.Tests</AssemblyName>
+    <IsPackable>false</IsPackable>
+    <OptionStrict>On</OptionStrict>
+    <OptionExplicit>On</OptionExplicit>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\Utilities\Utilities.vbproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <Reference Include="System.Data" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Microsoft.NET.Test.Sdk" Version="17.11.1" />
+    <PackageReference Include="MSTest.TestFramework" Version="3.6.1" />
+    <PackageReference Include="MSTest.TestAdapter" Version="3.6.1" />
+  </ItemGroup>
+
+</Project>

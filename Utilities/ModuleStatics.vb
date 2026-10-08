@@ -312,7 +312,11 @@ Namespace statics
                     _blnSupportsOptions = True
                 End If
             Catch ex As Exception
-                MsgBox("AppParametersTableAdapter " & ex.Message)
+                If ErrorLog.IsEnabled Then
+                    ErrorLog.Report(ex, "ModuleStatics.InitConnection")
+                Else
+                    MsgBox("AppParametersTableAdapter " & ex.Message)
+                End If
             End Try
 
             Try
@@ -321,14 +325,22 @@ Namespace statics
                     _blnSupportsColorOptions = True
                 End If
             Catch ex As Exception
-                MsgBox("AppColorsTableAdapter " & ex.Message)
+                If ErrorLog.IsEnabled Then
+                    ErrorLog.Report(ex, "ModuleStatics.InitConnection")
+                Else
+                    MsgBox("AppColorsTableAdapter " & ex.Message)
+                End If
             End Try
 
             'Do loaddata to set Blocked before Updating the usr log.
             Try
                 LoadData()
             Catch ex As Exception
-                MsgBox("LoadData " & ex.Message)
+                If ErrorLog.IsEnabled Then
+                    ErrorLog.Report(ex, "ModuleStatics.InitConnection")
+                Else
+                    MsgBox("LoadData " & ex.Message)
+                End If
             End Try
 
             Try
@@ -336,7 +348,11 @@ Namespace statics
                 UpdateUsrLog(UserName, False, _Blocked)
                 lMinutesLoggedOn = Now().Ticks
             Catch ex As Exception
-                MsgBox("UpdateUsrLog " & ex.Message)
+                If ErrorLog.IsEnabled Then
+                    ErrorLog.Report(ex, "ModuleStatics.InitConnection")
+                Else
+                    MsgBox("UpdateUsrLog " & ex.Message)
+                End If
             End Try
 
             Try
@@ -410,7 +426,11 @@ Namespace statics
                     Exit For
                 Next
             Catch ex As Exception
-                MsgBox("m_versionTableAdapter " & ex.Message)
+                If ErrorLog.IsEnabled Then
+                    ErrorLog.Report(ex, "ModuleStatics.LoadData")
+                Else
+                    MsgBox("m_versionTableAdapter " & ex.Message)
+                End If
             End Try
 
             '''''''''''''''''''''''''''
@@ -441,38 +461,62 @@ Namespace statics
                 End If
                 _blnSupportsUserLog = True
             Catch ex As Exception
-                MsgBox("v_usr_grps " & ex.Message)
+                If ErrorLog.IsEnabled Then
+                    ErrorLog.Report(ex, "ModuleStatics.LoadData")
+                Else
+                    MsgBox("v_usr_grps " & ex.Message)
+                End If
             End Try
 
             If _blnSupportsMultiLang = True Then
                 Try
                     m_txt_header = m_txt_headerTableAdapter.GetDataBy(Lang)
                 Catch ex As Exception
-                    MsgBox("m_txt_header " & ex.Message)
+                    If ErrorLog.IsEnabled Then
+                        ErrorLog.Report(ex, "ModuleStatics.LoadData")
+                    Else
+                        MsgBox("m_txt_header " & ex.Message)
+                    End If
                 End Try
 
                 Try
                     m_form = m_formTableAdapter.GetData()
                 Catch ex As Exception
-                    MsgBox("m_form " & ex.Message)
+                    If ErrorLog.IsEnabled Then
+                        ErrorLog.Report(ex, "ModuleStatics.LoadData")
+                    Else
+                        MsgBox("m_form " & ex.Message)
+                    End If
                 End Try
 
                 Try
                     m_txt = m_txtTableAdapter.GetData()
                 Catch ex As Exception
-                    MsgBox("m_txt " & ex.Message)
+                    If ErrorLog.IsEnabled Then
+                        ErrorLog.Report(ex, "ModuleStatics.LoadData")
+                    Else
+                        MsgBox("m_txt " & ex.Message)
+                    End If
                 End Try
 
                 Try
                     m_tble_column = m_tble_columnTableAdapter.GetData()
                 Catch ex As Exception
-                    MsgBox("m_tble_column " & ex.Message)
+                    If ErrorLog.IsEnabled Then
+                        ErrorLog.Report(ex, "ModuleStatics.LoadData")
+                    Else
+                        MsgBox("m_tble_column " & ex.Message)
+                    End If
                 End Try
 
                 Try
                     m_tble_column_header = v_tble_column_headerTableAdapter.GetDataBy(Lang)
                 Catch ex As Exception
-                    MsgBox("m_tble_column_header " & ex.Message)
+                    If ErrorLog.IsEnabled Then
+                        ErrorLog.Report(ex, "ModuleStatics.LoadData")
+                    Else
+                        MsgBox("m_tble_column_header " & ex.Message)
+                    End If
                 End Try
 
                 '20110411 The GetData is sorted on sequence for the ui. Have added a not sorted version to speed 
@@ -480,7 +524,11 @@ Namespace statics
                 Try
                     m_form_tble_column__visibility = m_form_tble_column__visibilityTableAdapter.GetDataNotSorted()
                 Catch ex As Exception
-                    MsgBox("m_form_tble_column__visibility " & ex.Message)
+                    If ErrorLog.IsEnabled Then
+                        ErrorLog.Report(ex, "ModuleStatics.LoadData")
+                    Else
+                        MsgBox("m_form_tble_column__visibility " & ex.Message)
+                    End If
                 End Try
 
                 Try
@@ -805,7 +853,11 @@ Namespace statics
                     strHeader = strOriginalHeader
                     v_tble_column_headerTableAdapter.Insert(strTable, strColumn, Lang, strOriginalHeader)
                 Catch ex As Exception
-                    MsgBox(ex.Message)
+                    If ErrorLog.IsEnabled Then
+                        ErrorLog.Report(ex, "ModuleStatics.get_v_form_tble_column")
+                    Else
+                        MsgBox(ex.Message)
+                    End If
                 End Try
             End If
 
