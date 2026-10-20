@@ -54,7 +54,11 @@ Public Class ADHOCDataSet_v_all_views
             AdjustDataGridWidth(blnAdjustWidth)
             RefreshCombos()
         Catch ex As Exception
-            MsgBox(ex.Message)
+            If ErrorLog.IsEnabled Then
+                ErrorLog.Report(ex, "ADHOCDataSet_v_all_views.Adjustcolumns")
+            Else
+                MsgBox(ex.Message)
+            End If
         End Try
     End Sub
     Public Overrides Sub RefreshCombos()

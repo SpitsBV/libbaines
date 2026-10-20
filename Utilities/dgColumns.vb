@@ -990,7 +990,11 @@ Public Class dgColumns
                 Next col
             End If
         Catch ex As Exception
-            MsgBox(ex.Message)
+            If ErrorLog.IsEnabled Then
+                ErrorLog.Report(ex, "dgColumns.PutColumnsInGrid")
+            Else
+                MsgBox(ex.Message)
+            End If
         End Try
 
         '20100122 RPB created AdjustHorizontalAlignment()
@@ -1015,7 +1019,11 @@ Public Class dgColumns
                 Next col
             End If
         Catch ex As Exception
-            MsgBox(ex.Message)
+            If ErrorLog.IsEnabled Then
+                ErrorLog.Report(ex, "dgColumns.PutOnlyVisibleColumnsInGrid")
+            Else
+                MsgBox(ex.Message)
+            End If
         End Try
 
         '20100122 RPB created AdjustHorizontalAlignment()
@@ -1036,7 +1044,11 @@ Public Class dgColumns
                 Next col
             End If
         Catch ex As Exception
-            MsgBox(ex.Message)
+            If ErrorLog.IsEnabled Then
+                ErrorLog.Report(ex, "dgColumns.SetColumnsReadOnly")
+            Else
+                MsgBox(ex.Message)
+            End If
         End Try
     End Sub
 
@@ -1069,7 +1081,11 @@ Public Class dgColumns
                 End If
             End If
         Catch ex As Exception
-            MsgBox(ex.Message)
+            If ErrorLog.IsEnabled Then
+                ErrorLog.Report(ex, "dgColumns.strGetEfficientSelect")
+            Else
+                MsgBox(ex.Message)
+            End If
         End Try
         Return strRet
     End Function
@@ -1228,7 +1244,11 @@ Public Class dgColumns
             '20100224
             tb.ToolTipText = strName
         Catch ex As Exception
-            MsgBox(ex.Message)
+            If ErrorLog.IsEnabled Then
+                ErrorLog.Report(ex, "dgColumns.DefineColumn")
+            Else
+                MsgBox(ex.Message)
+            End If
         End Try
 
     End Sub
@@ -1551,7 +1571,11 @@ Public Class dgColumns
                 End If
             Next
         Catch ex As Exception
-            MsgBox(ex.Message)
+            If ErrorLog.IsEnabled Then
+                ErrorLog.Report(ex, "dgColumns.AdjustFilterBoxesInGB")
+            Else
+                MsgBox(ex.Message)
+            End If
         End Try
 
         Return iTotalWidth
@@ -1759,7 +1783,11 @@ Public Class dgColumns
                 bs.Filter = strF
             End If
         Catch ex As Exception
-            MsgBox(ex.Message, MsgBoxStyle.OkOnly)
+            If ErrorLog.IsEnabled Then
+                ErrorLog.Report(ex, "dgColumns.MakeFilter")
+            Else
+                MsgBox(ex.Message, MsgBoxStyle.OkOnly)
+            End If
         End Try
 
     End Sub

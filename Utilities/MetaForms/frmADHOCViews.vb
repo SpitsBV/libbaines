@@ -67,7 +67,11 @@ Public Class frmAdhocViews
             FillTableAdapter()
 
         Catch ex As Exception
-            MsgBox(ex.Message)
+            If ErrorLog.IsEnabled Then
+                ErrorLog.Report(ex, "frmAdhocViews.frmLoad")
+            Else
+                MsgBox(ex.Message)
+            End If
         End Try
     End Sub
 
@@ -79,7 +83,11 @@ Public Class frmAdhocViews
                 blnAllowUpdate = True
             End If
         Catch ex As Exception
-            MsgBox(ex.Message)
+            If ErrorLog.IsEnabled Then
+                ErrorLog.Report(ex, "frmAdhocViews.FillTableAdapter")
+            Else
+                MsgBox(ex.Message)
+            End If
         Finally
             Me.Cursor = Cursors.Default
         End Try
@@ -198,7 +206,11 @@ Public Class frmAdhocViews
                 bindingSource1.DataSource = table
             Catch ex As Exception
                 Dim strT As String = statics.get_txt_header("The ADHOC view did not execute correctly. Exception message was ", "User advice in frmADHOCViews.", "User information")
-                MsgBox(strT + ex.Message)
+                If ErrorLog.IsEnabled Then
+                    ErrorLog.Report(ex, "frmAdhocViews.btnShowData_Click", hint:=strT)
+                Else
+                    MsgBox(strT + ex.Message)
+                End If
             End Try
         End If
 
@@ -260,7 +272,11 @@ Public Class ADHOCTable
             AdjustDataGridWidth(blnAdjustWidth)
             RefreshCombos()
         Catch ex As Exception
-            MsgBox(ex.Message)
+            If ErrorLog.IsEnabled Then
+                ErrorLog.Report(ex, "ADHOCTable.Adjustcolumns")
+            Else
+                MsgBox(ex.Message)
+            End If
         End Try
     End Sub
 

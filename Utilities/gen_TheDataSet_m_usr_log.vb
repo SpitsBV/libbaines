@@ -71,7 +71,11 @@ tadap = CType(ta, TheDataSetTableAdapters.m_usr_logTableAdapter)
 tadap.Delete(e.Row.Cells(dg.Columns("Id").Index).Value.ToString())
 MyBase.dg_UserDeletingRow(sender, e)
 Catch ex As Exception
-MsgBox("Delete failed. Most common cause is that record is in use in another table." + ex.message)
+If ErrorLog.IsEnabled Then
+    ErrorLog.Report(ex, "TheDataSet_m_usr_log.dg_UserDeletingRow", hint:="Delete failed. Most common cause is that record is in use in another table.")
+Else
+    MsgBox("Delete failed. Most common cause is that record is in use in another table." + ex.message)
+End If
 e.Cancel = True
 End Try
 End Sub

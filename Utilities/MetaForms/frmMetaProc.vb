@@ -59,7 +59,11 @@ MainDefs, True, Controls, Me, True)
             FillTableAdapter()
 
         Catch ex As Exception
-            MsgBox(ex.Message)
+            If ErrorLog.IsEnabled Then
+                ErrorLog.Report(ex, "frmMetaProc.frmLoad")
+            Else
+                MsgBox(ex.Message)
+            End If
         End Try
     End Sub
 
@@ -77,7 +81,11 @@ MainDefs, True, Controls, Me, True)
 
             End If
         Catch ex As Exception
-            MsgBox(ex.Message)
+            If ErrorLog.IsEnabled Then
+                ErrorLog.Report(ex, "frmMetaProc.FillTableAdapter")
+            Else
+                MsgBox(ex.Message)
+            End If
         Finally
             Me.Cursor = Cursors.Default
         End Try
@@ -93,7 +101,11 @@ MainDefs, True, Controls, Me, True)
              
             End If
         Catch ex As Exception
-            MsgBox(ex.Message)
+            If ErrorLog.IsEnabled Then
+                ErrorLog.Report(ex, "frmMetaProc.dgROUTINES_RowEnter")
+            Else
+                MsgBox(ex.Message)
+            End If
         End Try
     End Sub
 #End Region

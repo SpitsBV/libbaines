@@ -188,7 +188,11 @@ Friend WithEvents dgCREATED As System.Windows.Forms.DataGridViewTextBoxColumn
             AdjustDataGridWidth(blnAdjustWidth)
             RefreshCombos()
         Catch ex As Exception
-            MsgBox(ex.Message)
+            If ErrorLog.IsEnabled Then
+                ErrorLog.Report(ex, "MetaData_v_INFORMATION_SCHEMA_ROUTINES.Adjustcolumns")
+            Else
+                MsgBox(ex.Message)
+            End If
         End Try
     End Sub
 Public Overrides Sub RefreshCombos()

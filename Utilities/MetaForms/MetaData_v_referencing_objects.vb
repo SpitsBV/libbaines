@@ -47,7 +47,11 @@ Friend WithEvents dgis_caller_dependent As System.Windows.Forms.DataGridViewChec
             AdjustDataGridWidth(blnAdjustWidth)
             RefreshCombos()
         Catch ex As Exception
-            MsgBox(ex.Message)
+            If ErrorLog.IsEnabled Then
+                ErrorLog.Report(ex, "MetaData_v_referencing_objects.Adjustcolumns")
+            Else
+                MsgBox(ex.Message)
+            End If
         End Try
     End Sub
 Public Overrides Sub RefreshCombos()
