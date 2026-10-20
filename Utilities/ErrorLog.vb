@@ -6,10 +6,10 @@ Imports System.Threading
 Imports System.Windows.Forms
 
 ''' <summary>
-''' CH-227: central error reporting. Not configured (spits): behaves exactly as the
-''' MsgBox(ex.Message) it replaces. Configured (UPLUS): SQL errors are logged through
-''' dbo.p_insert_error_log and the user gets a generic text with an error code.
-''' Non-SQL exceptions keep MsgBox(ex.Message) until CH-238 extends logging to them.
+''' CH-227/CH-238: central error reporting. Not configured (spits): behaves exactly as the
+''' MsgBox(ex.Message) it replaces. Configured (UPLUS): every exception, SQL or not, is logged
+''' through dbo.p_insert_error_log (the hint as its reason) and the user gets a generic text with
+''' an error code.
 ''' </summary>
 Public NotInheritable Class ErrorLog
 
@@ -71,7 +71,8 @@ Public NotInheritable Class ErrorLog
 
     ''' <summary>
     ''' Handles an exception caught by the caller. Returns the error code when a log row was written.
-    ''' A non-empty hint is shown as a first paragraph above the text Report shows; it is never logged.
+    ''' A non-empty hint is shown as a first paragraph above the text Report shows and, when logging is
+    ''' enabled, stored as the reason of the log row.
     ''' Never throws.
     ''' </summary>
     Public Shared Function Report(ex As Exception, context As String,
@@ -100,17 +101,17 @@ Public NotInheritable Class ErrorLog
         Return Process(ex, context, hint, logId)
     End Function
 
-    ' Shared path of Report and ReportText: logs when enabled and SQL-related, returns the text to show
+    ' Shared path of Report and ReportText: logs when enabled, returns the text to show
     ' (Nothing when there is none) and the error code when a row was written. Never throws.
     Private Shared Function Process(ex As Exception, context As String, hint As String,
                                     ByRef logId As Integer?) As String
         logId = Nothing
         If ex Is Nothing Then Return Nothing
         Try
-            Dim sqlEx As SqlException = If(_enabled, FindSqlException(ex), Nothing)
-            If sqlEx Is Nothing Then Return WithHint(hint, ex.Message)
+            If Not _enabled Then Return WithHint(hint, ex.Message)
 
-            Dim entry As ErrorLogEntry = BuildEntry(ex, sqlEx, context)
+            Dim sqlEx As SqlException = FindSqlException(ex)
+            Dim entry As ErrorLogEntry = BuildEntry(ex, sqlEx, context, hint)
             If _reporting Then
                 ' Reporting failed while reporting: do not recurse.
                 _fallback.Write(entry.ToString())
@@ -132,7 +133,7 @@ Public NotInheritable Class ErrorLog
                     ' The fallback file is unavailable too; the user must still be informed.
                     Debug.WriteLine("ErrorLog: fallback failed: " & fallbackEx.ToString())
                 End Try
-                text = If(IsConnectionError(sqlEx), ConnectionFailedText, LogFailedText)
+                text = If(sqlEx IsNot Nothing AndAlso IsConnectionError(sqlEx), ConnectionFailedText, LogFailedText)
             Finally
                 _reporting = False
             End Try
@@ -188,23 +189,29 @@ Public NotInheritable Class ErrorLog
         End SyncLock
     End Sub
 
-    Private Shared Function BuildEntry(ex As Exception, sqlEx As SqlException, context As String) As ErrorLogEntry
-        Return New ErrorLogEntry With {
+    ' sqlEx may be Nothing (non-SQL exception): the SQL fields then stay Nothing.
+    Private Shared Function BuildEntry(ex As Exception, sqlEx As SqlException, context As String,
+                                       hint As String) As ErrorLogEntry
+        Dim entry As New ErrorLogEntry With {
             .App = _appName,
             .AppVersion = _appVersion,
             .Usr = Environment.UserName,
             .Machine = Environment.MachineName,
             .Context = If(context, ""),
-            .Message = ex.Message,
+            .Reason = hint,
+            .Message = If(ex.Message, ""),
             .ExceptionType = ex.GetType().FullName,
-            .Trace = ex.ToString(),
-            .SqlNumber = sqlEx.Number,
-            .SqlSeverity = sqlEx.Class,
-            .SqlState = sqlEx.State,
-            .SqlProcedure = If(sqlEx.Procedure, ""),
-            .SqlLine = sqlEx.LineNumber,
-            .SqlServer = If(sqlEx.Server, "")
+            .Trace = ex.ToString()
         }
+        If sqlEx IsNot Nothing Then
+            entry.SqlNumber = sqlEx.Number
+            entry.SqlSeverity = sqlEx.Class
+            entry.SqlState = sqlEx.State
+            entry.SqlProcedure = If(sqlEx.Procedure, "")
+            entry.SqlLine = sqlEx.LineNumber
+            entry.SqlServer = If(sqlEx.Server, "")
+        End If
+        Return entry
     End Function
 
     Private Shared Function IsConnectionError(sqlEx As SqlException) As Boolean

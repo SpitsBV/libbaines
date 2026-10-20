@@ -27,6 +27,8 @@ Friend NotInheritable Class ErrorLogEntry
     Public Property Usr As String
     Public Property Machine As String
     Public Property Context As String
+    ' CH-238: the hint passed to Report, Nothing when there was none.
+    Public Property Reason As String
     Public Property Message As String
     Public Property ExceptionType As String
     Public Property Trace As String
@@ -76,6 +78,8 @@ Friend NotInheritable Class SqlErrorLogWriter
             cmd.Parameters.Add("@usr", SqlDbType.NVarChar, 128).Value = entry.Usr
             cmd.Parameters.Add("@machine", SqlDbType.NVarChar, 128).Value = entry.Machine
             cmd.Parameters.Add("@context", SqlDbType.NVarChar, 250).Value = Truncate(entry.Context, 250)
+            cmd.Parameters.Add("@reason", SqlDbType.NVarChar, 1000).Value =
+                If(String.IsNullOrEmpty(entry.Reason), DBNull.Value, CObj(Truncate(entry.Reason, 1000)))
             cmd.Parameters.Add("@message", SqlDbType.NVarChar, -1).Value = entry.Message
             cmd.Parameters.Add("@exception_type", SqlDbType.NVarChar, 250).Value = DbValue(entry.ExceptionType)
             cmd.Parameters.Add("@trace", SqlDbType.NVarChar, -1).Value = DbValue(entry.Trace)

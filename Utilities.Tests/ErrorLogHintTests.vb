@@ -5,7 +5,7 @@ Imports System.Data.SqlClient
 Imports System.Threading.Tasks
 Imports Microsoft.VisualStudio.TestTools.UnitTesting
 
-' CH-227 - Report(..., hint) and ReportText(...). Text rule with a non-empty hint:
+' CH-227/CH-238 - Report(..., hint) and ReportText(...). Text rule with a non-empty hint:
 ' hint & vbCrLf & vbCrLf & <text without hint>.
 <TestClass>
 Public Class ErrorLogHintTests
@@ -53,7 +53,9 @@ Public Class ErrorLogHintTests
                 Case Row.ConfiguredPlain
                     ErrorLog.Configure(ConnectionString, "UPLUS", "1.2.3")
                     Ex = If(exOverride, New InvalidOperationException("configured plain message"))
-                    BaseText = Ex.Message
+                    BaseText = "T" & vbCrLf & vbCrLf & "Error code: 42. Pass this code on to the administrator."
+                    ExpectedReturn = 42
+                    ExpectsWrite = True
                 Case Row.ConfiguredSqlWriteOk
                     ErrorLog.Configure(ConnectionString, "UPLUS", "1.2.3")
                     Ex = If(exOverride, SqlExceptionFactory.Create(547, message:="fk message"))
@@ -161,20 +163,20 @@ Public Class ErrorLogHintTests
         Next
     End Sub
 
+    ' CH-238 reverses CH-227 here on purpose: the hint is stored as the reason of the log row.
     <TestMethod>
-    Public Sub Report_WithHint_HintIsNeverLogged()
+    Public Sub Report_WithHint_HintIsLoggedAsReason()
         For Each r As Row In AllRows
             Dim s As New Scenario(r)
 
             ErrorLog.Report(s.Ex, "ctx", hint:=Hint)
 
+            Assert.AreEqual(If(s.ExpectsWrite, 1, 0), s.Writer.CallCount, r.ToString())
             For Each e As ErrorLogEntry In s.Writer.Entries
                 Assert.AreEqual("ctx", e.Context, r.ToString())
+                Assert.AreEqual(Hint, e.Reason, r.ToString() & " Reason")
                 Assert.IsFalse(e.Message.Contains(Hint), r.ToString() & " Message")
                 Assert.IsFalse(If(e.Trace, "").Contains(Hint), r.ToString() & " Trace")
-            Next
-            For Each t As String In s.Fallback.Written
-                Assert.IsFalse(t.Contains(Hint), r.ToString() & " fallback")
             Next
         Next
     End Sub

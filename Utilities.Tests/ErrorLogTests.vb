@@ -6,7 +6,7 @@ Imports System.Threading
 Imports System.Threading.Tasks
 Imports Microsoft.VisualStudio.TestTools.UnitTesting
 
-' CH-227 - Utilities.ErrorLog, tested through the Friend seams (IErrorLogWriter, IErrorPresenter, IFallbackLog).
+' CH-227/CH-238 - Utilities.ErrorLog, tested through the Friend seams (IErrorLogWriter, IErrorPresenter, IFallbackLog).
 <TestClass>
 Public Class ErrorLogTests
 
@@ -178,33 +178,127 @@ Public Class ErrorLogTests
     End Sub
 
     ' ------------------------------------------------------------------
-    ' 3. Configured, non-SQL exception (the CH-238 gate)
+    ' 3. Non-SQL exception (CH-238: logged when configured)
     ' ------------------------------------------------------------------
 
-    <TestMethod>
-    Public Sub Configured_NonSqlException_ShowsMessage_NoWrite_ReturnsNothing()
-        ConfigureLogging()
-        Dim ex As New InvalidOperationException("plain failure")
+    ''' <summary>Exception whose Message is Nothing, as a badly written custom exception can return.</summary>
+    Private NotInheritable Class NullMessageException
+        Inherits Exception
+        Public Overrides ReadOnly Property Message As String
+            Get
+                Return Nothing
+            End Get
+        End Property
+    End Class
 
-        Dim result As Integer? = ErrorLog.Report(ex, "ctx")
+    <TestMethod>
+    Public Sub Report_NonSql_Configured_WritesEntryWithoutSqlFields()
+        ConfigureLogging()
+
+        ErrorLog.Report(Thrown(New InvalidOperationException("boom")), "ctx")
+
+        Assert.AreEqual(1, _writer.CallCount)
+        Dim e As ErrorLogEntry = _writer.Entries(0)
+        Assert.AreEqual("System.InvalidOperationException", e.ExceptionType)
+        Assert.AreEqual("boom", e.Message)
+        StringAssert.Contains(e.Trace, "boom")
+        Assert.AreEqual("ctx", e.Context)
+        Assert.IsNull(e.SqlNumber)
+        Assert.IsNull(e.SqlSeverity)
+        Assert.IsNull(e.SqlState)
+        Assert.IsNull(e.SqlProcedure)
+        Assert.IsNull(e.SqlLine)
+        Assert.IsNull(e.SqlServer)
+        Assert.AreEqual(0, _fallback.CallCount)
+    End Sub
+
+    <TestMethod>
+    Public Sub Report_NonSql_Configured_ShowsUserMessageAndCode()
+        ConfigureLogging()
+
+        Dim result As Integer? = ErrorLog.Report(New InvalidOperationException("boom"), "ctx")
+
+        Assert.AreEqual(42, result.Value)
+        Assert.AreEqual(1, _presenter.CallCount)
+        Assert.AreEqual("T" & vbCrLf & vbCrLf & String.Format(ErrorLog.ErrorCodeText, 42), _presenter.Shown(0))
+        Assert.IsFalse(_presenter.Shown(0).Contains("boom"))
+    End Sub
+
+    <TestMethod>
+    Public Sub Report_NonSql_Configured_ShowMessageFalse_LogsButDoesNotShow()
+        ConfigureLogging()
+
+        Dim result As Integer? = ErrorLog.Report(New InvalidOperationException("boom"), "ctx", showMessage:=False)
+
+        Assert.AreEqual(42, result.Value)
+        Assert.AreEqual(1, _writer.CallCount)
+        Assert.AreEqual(0, _presenter.CallCount)
+        Assert.AreEqual(0, _fallback.CallCount)
+    End Sub
+
+    <TestMethod>
+    Public Sub Report_NonSql_NotConfigured_ShowsExMessage()
+        Dim result As Integer? = ErrorLog.Report(New InvalidOperationException("boom"), "ctx")
 
         Assert.IsFalse(result.HasValue)
         Assert.AreEqual(0, _writer.CallCount)
         Assert.AreEqual(0, _fallback.CallCount)
         Assert.AreEqual(1, _presenter.CallCount)
-        Assert.AreEqual("plain failure", _presenter.Shown(0))
+        Assert.AreEqual("boom", _presenter.Shown(0))
     End Sub
 
     <TestMethod>
-    Public Sub Configured_NonSqlException_ShowMessageFalse_NothingHappens()
+    Public Sub Report_NonSql_WriterThrows_ShowsLogFailedText()
         ConfigureLogging()
+        _writer.ThrowOnWrite = New InvalidOperationException("writer exploded")
 
-        Dim result As Integer? = ErrorLog.Report(New InvalidOperationException("plain failure"), "ctx", showMessage:=False)
+        Dim result As Integer? = ErrorLog.Report(New InvalidOperationException("boom"), "ctx")
 
         Assert.IsFalse(result.HasValue)
-        Assert.AreEqual(0, _writer.CallCount)
-        Assert.AreEqual(0, _presenter.CallCount)
-        Assert.AreEqual(0, _fallback.CallCount)
+        Assert.AreEqual(1, _fallback.CallCount)
+        StringAssert.Contains(_fallback.Written(0), "boom")
+        StringAssert.Contains(_fallback.Written(0), "writer exploded")
+        Assert.AreEqual(1, _presenter.CallCount)
+        Assert.AreEqual(ErrorLog.LogFailedText, _presenter.Shown(0))
+    End Sub
+
+    <TestMethod>
+    Public Sub Report_NonSql_WhileReporting_GoesToFallbackOnly()
+        ConfigureLogging()
+        Dim innerCalled As Boolean = False
+        _writer.OnWrite = Sub(entry As ErrorLogEntry)
+                              If innerCalled Then Return
+                              innerCalled = True
+                              ErrorLog.Report(New Exception("inner"), "ctx2")
+                          End Sub
+
+        Dim result As Integer? = ErrorLog.Report(New InvalidOperationException("outer"), "ctx")
+
+        Assert.IsTrue(innerCalled)
+        Assert.AreEqual(1, _writer.CallCount, "inner Report must not reach the writer")
+        Assert.AreEqual("ctx", _writer.Entries(0).Context)
+        Assert.AreEqual(1, _fallback.CallCount, "inner Report must write to the fallback")
+        StringAssert.Contains(_fallback.Written(0), "ctx2")
+        StringAssert.Contains(_fallback.Written(0), "inner")
+        Assert.AreEqual(42, result.Value)
+        Assert.AreEqual(1, _presenter.CallCount, "only the outer Report shows its text")
+        StringAssert.Contains(_presenter.Shown(0), "Error code: 42.")
+    End Sub
+
+    <TestMethod>
+    Public Sub Report_ExceptionWithNullMessage_DoesNotThrow()
+        ConfigureLogging()
+
+        Dim result As Integer? = Nothing
+        Try
+            result = ErrorLog.Report(New NullMessageException(), "ctx")
+        Catch ex As Exception
+            Assert.Fail("Report threw: " & ex.ToString())
+        End Try
+
+        Assert.AreEqual(42, result.Value)
+        Assert.AreEqual(1, _writer.CallCount)
+        Assert.AreEqual("", _writer.Entries(0).Message)
     End Sub
 
     ' ------------------------------------------------------------------
@@ -526,7 +620,7 @@ Public Class ErrorLogTests
         _presenter.ThrowOnShow = New InvalidOperationException("presenter boom")
 
         Try
-            Assert.IsFalse(ErrorLog.Report(New InvalidOperationException("x"), "ctx").HasValue)
+            Assert.AreEqual(42, ErrorLog.Report(New InvalidOperationException("x"), "ctx").Value)
         Catch ex As Exception
             Assert.Fail("Report threw: " & ex.ToString())
         End Try
