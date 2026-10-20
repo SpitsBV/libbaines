@@ -104,6 +104,12 @@ Friend NotInheritable Class SqlErrorLogWriter
             cmd.Parameters.Add("@sql_procedure", SqlDbType.NVarChar, 128).Value = DbValue(entry.SqlProcedure)
             cmd.Parameters.Add("@sql_line", SqlDbType.Int).Value = DbValue(entry.SqlLine)
             cmd.Parameters.Add("@sql_server", SqlDbType.NVarChar, 128).Value = DbValue(entry.SqlServer)
+            ' CH-238: set on a replayed entry only; the proc ignores a second insert of the same local_ref.
+            cmd.Parameters.Add("@local_ref", SqlDbType.VarChar, 30).Value =
+                If(String.IsNullOrEmpty(entry.LocalRef), DBNull.Value, CObj(entry.LocalRef))
+            ' Created is client-local time and goes into the server-local datetime column as is: this
+            ' assumes client and database server share a timezone.
+            cmd.Parameters.Add("@created", SqlDbType.DateTime).Value = DbValue(entry.Created)
             conn.Open()
             Using reader As SqlDataReader = cmd.ExecuteReader()
                 If Not reader.Read() Then
@@ -290,7 +296,8 @@ Friend NotInheritable Class FilePendingQueue
     Private Shared Function Parse(serializer As JavaScriptSerializer, raw As String) As ErrorLogEntry
         Try
             Dim entry As ErrorLogEntry = serializer.Deserialize(Of ErrorLogEntry)(raw)
-            ' JavaScriptSerializer writes DateTime as UTC; Created is local time.
+            ' JavaScriptSerializer writes DateTime as UTC; Created is local time. The writer sends it to
+            ' a server-local datetime column, assuming client and database server share a timezone.
             If entry IsNot Nothing AndAlso entry.Created.HasValue Then entry.Created = entry.Created.Value.ToLocalTime()
             Return entry
         Catch ex As Exception

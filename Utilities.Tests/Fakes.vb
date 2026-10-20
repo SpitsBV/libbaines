@@ -19,6 +19,9 @@ Friend NotInheritable Class FakeWriter
     ''' <summary>When set, Write throws this instead of returning a result (the call is still recorded).</summary>
     Friend Property ThrowOnWrite As Exception
 
+    ''' <summary>When set and it returns an exception for the entry, Write throws that (the call is still recorded).</summary>
+    Friend Property ThrowOnWriteFor As Func(Of ErrorLogEntry, Exception)
+
     ''' <summary>When set, runs inside Write before the result is returned (re-entrancy tests).</summary>
     Friend Property OnWrite As Action(Of ErrorLogEntry)
 
@@ -43,6 +46,11 @@ Friend NotInheritable Class FakeWriter
         If hook IsNot Nothing Then hook(entry)
         Dim toThrow As Exception = ThrowOnWrite
         If toThrow IsNot Nothing Then Throw toThrow
+        Dim throwFor As Func(Of ErrorLogEntry, Exception) = ThrowOnWriteFor
+        If throwFor IsNot Nothing Then
+            Dim forEntry As Exception = throwFor(entry)
+            If forEntry IsNot Nothing Then Throw forEntry
+        End If
         If Sequential Then
             Return New ErrorLogResult(Interlocked.Increment(_nextId), ResultText)
         End If

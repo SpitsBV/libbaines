@@ -40,6 +40,8 @@ Public NotInheritable Class ErrorLog
     Private Shared _targetServer As String
     Private Shared _targetDatabase As String
     Private Shared _seamsOverridden As Boolean
+    ' 1 while ReplayPending runs.
+    Private Shared _replaying As Integer
 
     <ThreadStatic> Private Shared _reporting As Boolean
 
@@ -66,6 +68,7 @@ Public NotInheritable Class ErrorLog
         End If
         ' Server and database of a queued entry, so it is only ever replayed into the same database.
         Dim target As New SqlConnectionStringBuilder(connectionString)
+        Dim replay As Boolean
         SyncLock _sync
             _appName = appName
             _appVersion = appVersion
@@ -80,7 +83,11 @@ Public NotInheritable Class ErrorLog
                 End If
             End If
             _enabled = True
+            replay = Not _seamsOverridden
         End SyncLock
+        ' Entries queued while the database was unreachable; in the background so startup does not
+        ' wait. Tests (seams overridden) call ReplayPending directly.
+        If replay Then ThreadPool.QueueUserWorkItem(Sub(state) ReplayPending())
     End Sub
 
     ''' <summary>
@@ -197,6 +204,72 @@ Public NotInheritable Class ErrorLog
         Return "F" & DateTime.Now.ToString("yyyyMMddHHmmss", CultureInfo.InvariantCulture) &
                Guid.NewGuid().ToString("N").Substring(0, 4).ToUpperInvariant()
     End Function
+
+    ''' <summary>
+    ''' Writes the queued entries of the configured server and database to the database and removes
+    ''' them from the queue. Lines of other targets stay. A connection error stops the replay (the
+    ''' rest waits for the next Configure); any other failure rejects that one line. Shows nothing,
+    ''' never throws, and returns at once while another replay runs.
+    ''' </summary>
+    Friend Shared Sub ReplayPending()
+        If Interlocked.CompareExchange(_replaying, 1, 0) <> 0 Then Return
+        Dim fallback As IFallbackLog = _fallback
+        Try
+            Dim writer As IErrorLogWriter
+            Dim queue As IPendingQueue
+            Dim server, database As String
+            SyncLock _sync
+                If Not _enabled Then Return
+                writer = _writer
+                queue = _queue
+                fallback = _fallback
+                server = _targetServer
+                database = _targetDatabase
+            End SyncLock
+            If writer Is Nothing OrElse queue Is Nothing Then Return
+
+            Dim processed As New List(Of PendingLine)
+            Dim rejected As New List(Of PendingLine)
+            For Each line As PendingLine In queue.ReadAll()
+                If line.Entry Is Nothing Then
+                    rejected.Add(line)
+                    Continue For
+                End If
+                If Not String.Equals(line.Entry.TargetServer, server, StringComparison.OrdinalIgnoreCase) OrElse
+                   Not String.Equals(line.Entry.TargetDatabase, database, StringComparison.OrdinalIgnoreCase) Then
+                    Continue For
+                End If
+                Try
+                    writer.Write(line.Entry)
+                    processed.Add(line)
+                Catch writeEx As Exception
+                    Dim sqlEx As SqlException = FindSqlException(writeEx)
+                    If sqlEx IsNot Nothing AndAlso IsConnectionError(sqlEx) Then
+                        ' Database unreachable: keep this line and the rest for the next replay.
+                        Debug.WriteLine("ErrorLog: replay stopped at local code " & line.Entry.LocalRef & ": " & writeEx.Message)
+                        Exit For
+                    End If
+                    rejected.Add(line)
+                    WriteReplayFailure(fallback, "Replay rejected local code " & line.Entry.LocalRef, writeEx)
+                End Try
+            Next
+            If processed.Count > 0 OrElse rejected.Count > 0 Then queue.Remove(processed.ToArray(), rejected.ToArray())
+        Catch replayEx As Exception
+            WriteReplayFailure(fallback, "Replay failed", replayEx)
+        Finally
+            Interlocked.Exchange(_replaying, 0)
+        End Try
+    End Sub
+
+    Private Shared Sub WriteReplayFailure(fallback As IFallbackLog, what As String, ex As Exception)
+        Debug.WriteLine("ErrorLog: " & what & ": " & ex.ToString())
+        Try
+            fallback.Write(String.Format("{0:yyyy-MM-dd HH:mm:ss} {1}: {2}", DateTime.Now, what, ex))
+        Catch fallbackEx As Exception
+            ' ErrorLog: bewust genegeerd, replay runs in the background and must never throw; Debug has it.
+            Debug.WriteLine("ErrorLog: fallback failed: " & fallbackEx.ToString())
+        End Try
+    End Sub
 
     Friend Shared Sub SetSeams(writer As IErrorLogWriter, presenter As IErrorPresenter, fallback As IFallbackLog,
                                queue As IPendingQueue)
