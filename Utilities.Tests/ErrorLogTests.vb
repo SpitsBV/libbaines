@@ -2,11 +2,14 @@ Option Strict On
 Option Explicit On
 
 Imports System.Data.SqlClient
+Imports System.Globalization
+Imports System.IO
+Imports System.Text.RegularExpressions
 Imports System.Threading
 Imports System.Threading.Tasks
 Imports Microsoft.VisualStudio.TestTools.UnitTesting
 
-' CH-227/CH-238 - Utilities.ErrorLog, tested through the Friend seams (IErrorLogWriter, IErrorPresenter, IFallbackLog).
+' CH-227/CH-238 - Utilities.ErrorLog, tested through the Friend seams (IErrorLogWriter, IErrorPresenter, IFallbackLog, IPendingQueue).
 <TestClass>
 Public Class ErrorLogTests
 
@@ -17,6 +20,7 @@ Public Class ErrorLogTests
     Private _writer As FakeWriter
     Private _presenter As FakePresenter
     Private _fallback As FakeFallback
+    Private _queue As FakePendingQueue
 
     <TestInitialize>
     Public Sub Init()
@@ -24,7 +28,8 @@ Public Class ErrorLogTests
         _writer = New FakeWriter()
         _presenter = New FakePresenter()
         _fallback = New FakeFallback()
-        ErrorLog.SetSeams(_writer, _presenter, _fallback)
+        _queue = New FakePendingQueue()
+        ErrorLog.SetSeams(_writer, _presenter, _fallback, _queue)
     End Sub
 
     <TestCleanup>
@@ -43,6 +48,12 @@ Public Class ErrorLogTests
         Catch caught As Exception
             Return caught
         End Try
+    End Function
+
+    ' Text shown when the writer failed: the failure text plus the local code of the queued entry.
+    Private Function FailedText(baseText As String) As String
+        Assert.AreEqual(1, _queue.Entries.Length, "one queued entry")
+        Return baseText & vbCrLf & vbCrLf & String.Format(ErrorLog.LocalCodeText, _queue.Entries(0).LocalRef)
     End Function
 
     Private Shared Function Wrap(inner As Exception, levels As Integer) As Exception
@@ -203,6 +214,7 @@ Public Class ErrorLogTests
         Assert.AreEqual("boom", e.Message)
         StringAssert.Contains(e.Trace, "boom")
         Assert.AreEqual("ctx", e.Context)
+        Assert.IsNull(e.Reason)
         Assert.IsNull(e.SqlNumber)
         Assert.IsNull(e.SqlSeverity)
         Assert.IsNull(e.SqlState)
@@ -248,7 +260,7 @@ Public Class ErrorLogTests
     End Sub
 
     <TestMethod>
-    Public Sub Report_NonSql_WriterThrows_ShowsLogFailedText()
+    Public Sub Report_NonSql_WriterThrows_ShowsLogFailedTextAndLocalCode()
         ConfigureLogging()
         _writer.ThrowOnWrite = New InvalidOperationException("writer exploded")
 
@@ -259,7 +271,7 @@ Public Class ErrorLogTests
         StringAssert.Contains(_fallback.Written(0), "boom")
         StringAssert.Contains(_fallback.Written(0), "writer exploded")
         Assert.AreEqual(1, _presenter.CallCount)
-        Assert.AreEqual(ErrorLog.LogFailedText, _presenter.Shown(0))
+        Assert.AreEqual(FailedText(ErrorLog.LogFailedText), _presenter.Shown(0))
     End Sub
 
     <TestMethod>
@@ -438,15 +450,17 @@ Public Class ErrorLogTests
     End Sub
 
     <TestMethod>
-    Public Sub WriterThrows_ConnectionError_PresenterShowsConnectionFailedText_NoErrorCode()
+    Public Sub WriterThrows_ConnectionError_PresenterShowsConnectionFailedTextAndLocalCode()
         ConfigureLogging()
         _writer.ThrowOnWrite = New InvalidOperationException("writer exploded")
 
-        ErrorLog.Report(SqlExceptionFactory.Create(53), "ctx")
+        Dim result As Integer? = ErrorLog.Report(SqlExceptionFactory.Create(53), "ctx")
 
+        Assert.IsFalse(result.HasValue)
         Assert.AreEqual(1, _presenter.CallCount)
-        Assert.AreEqual(ErrorLog.ConnectionFailedText, _presenter.Shown(0))
-        Assert.IsFalse(_presenter.Shown(0).Contains("Error code"))
+        Assert.AreEqual(FailedText(ErrorLog.ConnectionFailedText), _presenter.Shown(0))
+        Assert.AreEqual(53, _queue.Entries(0).SqlNumber)
+        StringAssert.Contains(_fallback.Written(0), _queue.Entries(0).LocalRef)
     End Sub
 
     <TestMethod>
@@ -456,7 +470,7 @@ Public Class ErrorLogTests
 
         ErrorLog.Report(Wrap(SqlExceptionFactory.Create(53), 2), "ctx")
 
-        Assert.AreEqual(ErrorLog.ConnectionFailedText, _presenter.Shown(0))
+        Assert.AreEqual(FailedText(ErrorLog.ConnectionFailedText), _presenter.Shown(0))
     End Sub
 
     <TestMethod>
@@ -469,7 +483,7 @@ Public Class ErrorLogTests
             ErrorLog.Report(SqlExceptionFactory.Create(number), "ctx")
 
             Assert.AreEqual(1, _presenter.CallCount, "number " & number.ToString())
-            Assert.AreEqual(ErrorLog.ConnectionFailedText, _presenter.Shown(0), "number " & number.ToString())
+            Assert.AreEqual(FailedText(ErrorLog.ConnectionFailedText), _presenter.Shown(0), "number " & number.ToString())
         Next
     End Sub
 
@@ -481,7 +495,7 @@ Public Class ErrorLogTests
 
         ErrorLog.Report(SqlExceptionFactory.Create(53), "ctx")
 
-        Assert.AreEqual("custom connection text", _presenter.Shown(0))
+        Assert.AreEqual(FailedText("custom connection text"), _presenter.Shown(0))
     End Sub
 
     ' ------------------------------------------------------------------
@@ -498,8 +512,7 @@ Public Class ErrorLogTests
 
         Assert.IsFalse(result.HasValue)
         Assert.AreEqual(1, _presenter.CallCount)
-        Assert.AreEqual(ErrorLog.LogFailedText, _presenter.Shown(0))
-        Assert.AreNotEqual(ErrorLog.ConnectionFailedText, _presenter.Shown(0))
+        Assert.AreEqual(FailedText(ErrorLog.LogFailedText), _presenter.Shown(0))
         Assert.AreEqual(1, _fallback.CallCount)
         StringAssert.Contains(_fallback.Written(0), "FK conflict")
     End Sub
@@ -512,7 +525,7 @@ Public Class ErrorLogTests
 
         ErrorLog.Report(SqlExceptionFactory.Create(547), "ctx")
 
-        Assert.AreEqual("custom log text", _presenter.Shown(0))
+        Assert.AreEqual(FailedText("custom log text"), _presenter.Shown(0))
     End Sub
 
     <TestMethod>
@@ -638,7 +651,7 @@ Public Class ErrorLogTests
             Assert.Fail("Report threw: " & ex.ToString())
         End Try
         Assert.AreEqual(1, _presenter.CallCount)
-        Assert.AreEqual(ErrorLog.LogFailedText, _presenter.Shown(0))
+        Assert.AreEqual(FailedText(ErrorLog.LogFailedText), _presenter.Shown(0))
     End Sub
 
     <TestMethod>
@@ -840,6 +853,109 @@ Public Class ErrorLogTests
         ConfigureLogging()
         ErrorLog.Reset()
         Assert.IsFalse(ErrorLog.IsEnabled)
+    End Sub
+
+    ' ------------------------------------------------------------------
+    ' 11b. CH-238: local code and pending queue when the write fails
+    ' ------------------------------------------------------------------
+
+    Private Const LocalRefPattern As String = "^F\d{14}[0-9A-F]{4}$"
+
+    <TestMethod>
+    Public Sub Report_WriterThrows_QueuesEntryWithLocalRef()
+        ConfigureLogging()
+        _writer.ThrowOnWrite = New InvalidOperationException("db")
+        Dim before As DateTime = DateTime.Now
+
+        Dim result As Integer? = ErrorLog.Report(Thrown(New InvalidOperationException("boom")), "ctx")
+
+        Assert.IsFalse(result.HasValue)
+        Assert.AreEqual(1, _queue.Entries.Length)
+        Dim e As ErrorLogEntry = _queue.Entries(0)
+        StringAssert.Matches(e.LocalRef, New Regex(LocalRefPattern))
+        Assert.IsTrue(e.Created.HasValue)
+        Assert.IsTrue(e.Created.Value >= before.AddSeconds(-1) AndAlso e.Created.Value <= DateTime.Now.AddSeconds(1))
+        Assert.AreEqual(".", e.TargetServer)
+        Assert.AreEqual("x", e.TargetDatabase)
+        Assert.AreEqual("boom", e.Message)
+        Assert.AreEqual("ctx", e.Context)
+        Assert.AreEqual(1, _presenter.CallCount)
+        Assert.IsTrue(_presenter.Shown(0).EndsWith(String.Format(ErrorLog.LocalCodeText, e.LocalRef)), _presenter.Shown(0))
+        Assert.AreEqual(1, _fallback.CallCount)
+        StringAssert.Contains(_fallback.Written(0), e.LocalRef)
+        StringAssert.Contains(_fallback.Written(0), "boom")
+    End Sub
+
+    <TestMethod>
+    Public Sub Report_WriterSucceeds_EntryHasNoLocalRefOrCreated_ButHasTarget()
+        ConfigureLogging()
+
+        ErrorLog.Report(New InvalidOperationException("boom"), "ctx")
+
+        Dim e As ErrorLogEntry = _writer.Entries(0)
+        Assert.IsNull(e.LocalRef)
+        Assert.IsFalse(e.Created.HasValue)
+        Assert.AreEqual(".", e.TargetServer)
+        Assert.AreEqual("x", e.TargetDatabase)
+        Assert.AreEqual(0, _queue.Entries.Length)
+    End Sub
+
+    <TestMethod>
+    Public Sub Report_QueueThrows_StillShowsLocalCodeAndWritesFallback()
+        ConfigureLogging()
+        _writer.ThrowOnWrite = New InvalidOperationException("db")
+        _queue.ThrowOnAppend = New IOException("queue file locked")
+
+        Dim result As Integer? = Nothing
+        Try
+            result = ErrorLog.Report(SqlExceptionFactory.Create(53, message:="network path"), "ctx")
+        Catch ex As Exception
+            Assert.Fail("Report threw: " & ex.ToString())
+        End Try
+
+        Assert.IsFalse(result.HasValue)
+        Assert.AreEqual(0, _queue.Entries.Length)
+        Assert.AreEqual(1, _presenter.CallCount)
+        Dim shown As String = _presenter.Shown(0)
+        Dim prefix As String = ErrorLog.ConnectionFailedText & vbCrLf & vbCrLf
+        Assert.IsTrue(shown.StartsWith(prefix), shown)
+        Dim code As String = shown.Substring(prefix.Length)
+        Dim localRef As String = Regex.Match(code, "F\d{14}[0-9A-F]{4}").Value
+        Assert.AreEqual(String.Format(ErrorLog.LocalCodeText, localRef), code)
+        Assert.AreEqual(1, _fallback.CallCount)
+        StringAssert.Contains(_fallback.Written(0), localRef)
+        StringAssert.Contains(_fallback.Written(0), "network path")
+        StringAssert.Contains(_fallback.Written(0), "queue file locked")
+    End Sub
+
+    <TestMethod>
+    Public Sub NewLocalRef_HasFormat()
+        Dim code As String = ErrorLog.NewLocalRef()
+
+        Assert.AreEqual(19, code.Length)
+        StringAssert.Matches(code, New Regex(LocalRefPattern))
+    End Sub
+
+    <TestMethod>
+    Public Sub NewLocalRef_InvariantDigitsUnderThaiCulture()
+        Dim previous As CultureInfo = Thread.CurrentThread.CurrentCulture
+        Try
+            Thread.CurrentThread.CurrentCulture = New CultureInfo("th-TH")
+            StringAssert.Matches(ErrorLog.NewLocalRef(), New Regex("^F" & DateTime.Now.Year.ToString()))
+        Finally
+            Thread.CurrentThread.CurrentCulture = previous
+        End Try
+    End Sub
+
+    <TestMethod>
+    Public Sub LocalCodeText_DefaultSettableAndRestoredByReset()
+        Assert.AreEqual(ErrorLog.DefaultLocalCodeText, ErrorLog.LocalCodeText)
+        Assert.AreEqual("Error code: {0} (saved on this computer). Pass this code on to the administrator.",
+                        ErrorLog.DefaultLocalCodeText)
+        ErrorLog.LocalCodeText = "code {0}"
+        Assert.AreEqual("code {0}", ErrorLog.LocalCodeText)
+        ErrorLog.Reset()
+        Assert.AreEqual(ErrorLog.DefaultLocalCodeText, ErrorLog.LocalCodeText)
     End Sub
 
     ' ------------------------------------------------------------------

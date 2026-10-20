@@ -2,6 +2,7 @@ Option Strict On
 Option Explicit On
 
 Imports System.Data.SqlClient
+Imports System.Globalization
 Imports System.Threading
 Imports System.Windows.Forms
 
@@ -9,7 +10,8 @@ Imports System.Windows.Forms
 ''' CH-227/CH-238: central error reporting. Not configured (spits): behaves exactly as the
 ''' MsgBox(ex.Message) it replaces. Configured (UPLUS): every exception, SQL or not, is logged
 ''' through dbo.p_insert_error_log (the hint as its reason) and the user gets a generic text with
-''' an error code.
+''' an error code. When the log row cannot be written, the entry is queued on this computer under a
+''' local code (F + timestamp + 4 hex) that the user gets instead.
 ''' </summary>
 Public NotInheritable Class ErrorLog
 
@@ -19,6 +21,8 @@ Public NotInheritable Class ErrorLog
         "An error occurred. The error could not be logged; contact the administrator."
     Public Const DefaultErrorCodeText As String =
         "Error code: {0}. Pass this code on to the administrator."
+    Public Const DefaultLocalCodeText As String =
+        "Error code: {0} (saved on this computer). Pass this code on to the administrator."
 
     ' SQL error numbers that mean the database could not be reached. Mirrors the 9002 rows in
     ' b_error_sql_number: when the database is down there is no mapping to read.
@@ -32,6 +36,9 @@ Public NotInheritable Class ErrorLog
     Private Shared _writer As IErrorLogWriter
     Private Shared _presenter As IErrorPresenter = New MessageBoxPresenter(Nothing)
     Private Shared _fallback As IFallbackLog = New FileFallbackLog(Nothing)
+    Private Shared _queue As IPendingQueue
+    Private Shared _targetServer As String
+    Private Shared _targetDatabase As String
     Private Shared _seamsOverridden As Boolean
 
     <ThreadStatic> Private Shared _reporting As Boolean
@@ -43,6 +50,8 @@ Public NotInheritable Class ErrorLog
     Public Shared Property LogFailedText As String = DefaultLogFailedText
     ' Format string, {0} is the error log id.
     Public Shared Property ErrorCodeText As String = DefaultErrorCodeText
+    ' Format string, {0} is the local code of an entry that could not be written to the database.
+    Public Shared Property LocalCodeText As String = DefaultLocalCodeText
 
     Public Shared ReadOnly Property IsEnabled As Boolean
         Get
@@ -55,12 +64,17 @@ Public NotInheritable Class ErrorLog
         If String.IsNullOrEmpty(connectionString) Then
             Throw New ArgumentException("A connection string is required.", NameOf(connectionString))
         End If
+        ' Server and database of a queued entry, so it is only ever replayed into the same database.
+        Dim target As New SqlConnectionStringBuilder(connectionString)
         SyncLock _sync
             _appName = appName
             _appVersion = appVersion
+            _targetServer = target.DataSource
+            _targetDatabase = target.InitialCatalog
             If Not _seamsOverridden Then
                 _writer = New SqlErrorLogWriter(connectionString)
                 _fallback = New FileFallbackLog(appName)
+                _queue = New FilePendingQueue(appName)
                 If TypeOf SynchronizationContext.Current Is WindowsFormsSynchronizationContext Then
                     _presenter = New MessageBoxPresenter(SynchronizationContext.Current)
                 End If
@@ -126,14 +140,26 @@ Public NotInheritable Class ErrorLog
                 text = result.UserMessage & vbCrLf & vbCrLf &
                        String.Format(ErrorCodeText, result.ErrorLogId)
             Catch writeEx As Exception
+                Dim localRef As String = NewLocalRef()
+                entry.LocalRef = localRef
+                entry.Created = DateTime.Now
+                Dim queueFailure As String = ""
+                Try
+                    _queue.Append(entry)
+                Catch queueEx As Exception
+                    ' Queue file locked or unwritable: the readable fallback below still holds the
+                    ' entry and its local code.
+                    queueFailure = Environment.NewLine & "Queueing the entry failed: " & queueEx.ToString()
+                End Try
                 Try
                     _fallback.Write(entry.ToString() & Environment.NewLine &
-                                    "Logging to the database failed: " & writeEx.ToString())
+                                    "Logging to the database failed: " & writeEx.ToString() & queueFailure)
                 Catch fallbackEx As Exception
                     ' The fallback file is unavailable too; the user must still be informed.
                     Debug.WriteLine("ErrorLog: fallback failed: " & fallbackEx.ToString())
                 End Try
-                text = If(sqlEx IsNot Nothing AndAlso IsConnectionError(sqlEx), ConnectionFailedText, LogFailedText)
+                text = If(sqlEx IsNot Nothing AndAlso IsConnectionError(sqlEx), ConnectionFailedText, LogFailedText) &
+                       vbCrLf & vbCrLf & String.Format(LocalCodeText, localRef)
             Finally
                 _reporting = False
             End Try
@@ -165,11 +191,19 @@ Public NotInheritable Class ErrorLog
         Return FindSqlException(ex.InnerException)
     End Function
 
-    Friend Shared Sub SetSeams(writer As IErrorLogWriter, presenter As IErrorPresenter, fallback As IFallbackLog)
+    ''' <summary>Local error code: "F" + yyyyMMddHHmmss + 4 upper-case hex characters, 19 in total.</summary>
+    Friend Shared Function NewLocalRef() As String
+        Return "F" & DateTime.Now.ToString("yyyyMMddHHmmss", CultureInfo.InvariantCulture) &
+               Guid.NewGuid().ToString("N").Substring(0, 4).ToUpperInvariant()
+    End Function
+
+    Friend Shared Sub SetSeams(writer As IErrorLogWriter, presenter As IErrorPresenter, fallback As IFallbackLog,
+                               queue As IPendingQueue)
         SyncLock _sync
             _writer = writer
             _presenter = presenter
             _fallback = fallback
+            _queue = queue
             _seamsOverridden = True
         End SyncLock
     End Sub
@@ -182,10 +216,14 @@ Public NotInheritable Class ErrorLog
             _writer = Nothing
             _presenter = New MessageBoxPresenter(Nothing)
             _fallback = New FileFallbackLog(Nothing)
+            _queue = Nothing
+            _targetServer = Nothing
+            _targetDatabase = Nothing
             _seamsOverridden = False
             ConnectionFailedText = DefaultConnectionFailedText
             LogFailedText = DefaultLogFailedText
             ErrorCodeText = DefaultErrorCodeText
+            LocalCodeText = DefaultLocalCodeText
         End SyncLock
     End Sub
 
@@ -201,7 +239,9 @@ Public NotInheritable Class ErrorLog
             .Reason = hint,
             .Message = If(ex.Message, ""),
             .ExceptionType = ex.GetType().FullName,
-            .Trace = ex.ToString()
+            .Trace = ex.ToString(),
+            .TargetServer = _targetServer,
+            .TargetDatabase = _targetDatabase
         }
         If sqlEx IsNot Nothing Then
             entry.SqlNumber = sqlEx.Number

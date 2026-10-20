@@ -104,3 +104,53 @@ Friend NotInheritable Class FakeFallback
     End Sub
 
 End Class
+
+Friend NotInheritable Class FakePendingQueue
+    Implements IPendingQueue
+
+    Private ReadOnly _sync As New Object()
+    Private _lines As New List(Of PendingLine)
+    Private ReadOnly _rejected As New List(Of PendingLine)
+
+    ''' <summary>When set, Append throws this instead of queueing (a locked queue file).</summary>
+    Friend Property ThrowOnAppend As Exception
+
+    ''' <summary>Entries currently in the queue, in order.</summary>
+    Friend ReadOnly Property Entries As ErrorLogEntry()
+        Get
+            SyncLock _sync
+                Return _lines.Select(Function(l) l.Entry).ToArray()
+            End SyncLock
+        End Get
+    End Property
+
+    Friend ReadOnly Property Rejected As PendingLine()
+        Get
+            SyncLock _sync
+                Return _rejected.ToArray()
+            End SyncLock
+        End Get
+    End Property
+
+    Public Sub Append(entry As ErrorLogEntry) Implements IPendingQueue.Append
+        Dim toThrow As Exception = ThrowOnAppend
+        If toThrow IsNot Nothing Then Throw toThrow
+        SyncLock _sync
+            _lines.Add(New PendingLine With {.Raw = "", .Entry = entry})
+        End SyncLock
+    End Sub
+
+    Public Function ReadAll() As PendingLine() Implements IPendingQueue.ReadAll
+        SyncLock _sync
+            Return _lines.ToArray()
+        End SyncLock
+    End Function
+
+    Public Sub Rewrite(keep As PendingLine(), rejected As PendingLine()) Implements IPendingQueue.Rewrite
+        SyncLock _sync
+            _lines = New List(Of PendingLine)(keep)
+            _rejected.AddRange(rejected)
+        End SyncLock
+    End Sub
+
+End Class

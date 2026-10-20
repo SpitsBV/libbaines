@@ -5,6 +5,7 @@ Imports System.Data
 Imports System.Data.SqlClient
 Imports System.IO
 Imports System.Threading
+Imports System.Web.Script.Serialization
 
 ' CH-227: building blocks of ErrorLog. Friend so the behaviour can be tested through fakes
 ' (InternalsVisibleTo Utilities.Tests) without widening the public API.
@@ -38,12 +39,25 @@ Friend NotInheritable Class ErrorLogEntry
     Public Property SqlProcedure As String
     Public Property SqlLine As Integer?
     Public Property SqlServer As String
+    ' CH-238: set only when the database write failed and the entry was queued locally. Created is
+    ' the moment of the error; Nothing on a direct write, where the database default applies.
+    Public Property LocalRef As String
+    Public Property Created As DateTime?
+    ' CH-238: DataSource and InitialCatalog of the configured connection, so a queued entry is
+    ' replayed only into the database it was meant for.
+    Public Property TargetServer As String
+    Public Property TargetDatabase As String
 
+    ' Readable fallback text. Shows the local code and the reason when there are any, so the
+    ' administrator reading the file can match the code the user passes on.
     Public Overrides Function ToString() As String
-        Return String.Format("{0:yyyy-MM-dd HH:mm:ss} {1} {2} {3}@{4} [{5}] SQL {6}: {7}{8}{9}",
-                             DateTime.Now, App, AppVersion, Usr, Machine, Context,
+        Dim text As String = String.Format("{0:yyyy-MM-dd HH:mm:ss} {1} {2} {3}@{4} [{5}] SQL {6}: {7}{8}{9}",
+                             If(Created, DateTime.Now), App, AppVersion, Usr, Machine, Context,
                              If(SqlNumber.HasValue, SqlNumber.Value.ToString(), "-"),
                              Message, Environment.NewLine, Trace)
+        If Not String.IsNullOrEmpty(Reason) Then text = "Reason: " & Reason & Environment.NewLine & text
+        If Not String.IsNullOrEmpty(LocalRef) Then text = "Local code: " & LocalRef & Environment.NewLine & text
+        Return text
     End Function
 End Class
 
@@ -162,4 +176,117 @@ Friend NotInheritable Class FileFallbackLog
             IO.File.AppendAllText(file, text & Environment.NewLine & Environment.NewLine)
         End SyncLock
     End Sub
+End Class
+
+' CH-238: entries whose database write failed, kept on this computer until they can be replayed.
+Friend Interface IPendingQueue
+    ' Throws when the queue file cannot be locked.
+    Sub Append(entry As ErrorLogEntry)
+    ' Corrupt lines come back with Entry = Nothing.
+    Function ReadAll() As PendingLine()
+    ' Replaces the queue with keep and appends rejected (with a timestamp) to the rejected file.
+    Sub Rewrite(keep As PendingLine(), rejected As PendingLine())
+End Interface
+
+Friend NotInheritable Class PendingLine
+    Public Property Raw As String
+    ' Nothing when Raw is not a valid entry.
+    Public Property Entry As ErrorLogEntry
+End Class
+
+' One JSON object per line in %LOCALAPPDATA%\<app>\Logfiles\ErrorLog_pending.jsonl. Two processes of
+' the same Windows user (Citrix, production and QA side by side) share the file, so every open is
+' exclusive (FileShare.None) with a short retry instead of only an in-process lock.
+Friend NotInheritable Class FilePendingQueue
+    Implements IPendingQueue
+
+    Private Const Retries As Integer = 5
+    Private Const RetryDelayMs As Integer = 100
+
+    Private ReadOnly _file As String
+    Private ReadOnly _rejectedFile As String
+
+    Public Sub New(appName As String)
+        Me.New(New DirectoryInfo(Path.Combine(
+            Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
+            If(String.IsNullOrEmpty(appName), "Utilities", appName), "Logfiles")))
+    End Sub
+
+    ' Tests: a queue in any folder.
+    Friend Sub New(folder As DirectoryInfo)
+        _file = Path.Combine(folder.FullName, "ErrorLog_pending.jsonl")
+        _rejectedFile = Path.Combine(folder.FullName, "ErrorLog_pending_rejected.txt")
+    End Sub
+
+    Public Sub Append(entry As ErrorLogEntry) Implements IPendingQueue.Append
+        Dim line As String = NewSerializer().Serialize(entry)
+        Using stream As FileStream = OpenExclusive(_file, FileMode.Append, FileAccess.Write),
+              writer As New StreamWriter(stream)
+            writer.WriteLine(line)
+        End Using
+    End Sub
+
+    Public Function ReadAll() As PendingLine() Implements IPendingQueue.ReadAll
+        If Not IO.File.Exists(_file) Then Return New PendingLine() {}
+        Dim serializer As JavaScriptSerializer = NewSerializer()
+        Dim lines As New List(Of PendingLine)
+        Using stream As FileStream = OpenExclusive(_file, FileMode.Open, FileAccess.Read),
+              reader As New StreamReader(stream)
+            Dim raw As String = reader.ReadLine()
+            While raw IsNot Nothing
+                If raw.Trim().Length > 0 Then
+                    lines.Add(New PendingLine With {.Raw = raw, .Entry = Parse(serializer, raw)})
+                End If
+                raw = reader.ReadLine()
+            End While
+        End Using
+        Return lines.ToArray()
+    End Function
+
+    Public Sub Rewrite(keep As PendingLine(), rejected As PendingLine()) Implements IPendingQueue.Rewrite
+        Using stream As FileStream = OpenExclusive(_file, FileMode.Create, FileAccess.Write),
+              writer As New StreamWriter(stream)
+            For Each line As PendingLine In keep
+                writer.WriteLine(line.Raw)
+            Next
+        End Using
+        If rejected.Length = 0 Then Return
+        Using stream As FileStream = OpenExclusive(_rejectedFile, FileMode.Append, FileAccess.Write),
+              writer As New StreamWriter(stream)
+            Dim stamp As String = DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss", Globalization.CultureInfo.InvariantCulture)
+            For Each line As PendingLine In rejected
+                writer.WriteLine(stamp & " " & line.Raw)
+            Next
+        End Using
+    End Sub
+
+    Private Shared Function NewSerializer() As JavaScriptSerializer
+        Return New JavaScriptSerializer() With {.MaxJsonLength = Integer.MaxValue}
+    End Function
+
+    Private Shared Function Parse(serializer As JavaScriptSerializer, raw As String) As ErrorLogEntry
+        Try
+            Dim entry As ErrorLogEntry = serializer.Deserialize(Of ErrorLogEntry)(raw)
+            ' JavaScriptSerializer writes DateTime as UTC; Created is local time.
+            If entry IsNot Nothing AndAlso entry.Created.HasValue Then entry.Created = entry.Created.Value.ToLocalTime()
+            Return entry
+        Catch ex As Exception
+            ' ErrorLog: bewust genegeerd, a corrupt line is returned with Entry = Nothing for the caller to reject.
+            Return Nothing
+        End Try
+    End Function
+
+    ' Exclusive open with retries; rethrows the last IOException when the file stays locked.
+    Private Shared Function OpenExclusive(file As String, mode As FileMode, access As FileAccess) As FileStream
+        Directory.CreateDirectory(Path.GetDirectoryName(file))
+        Dim attempt As Integer = 0
+        Do
+            Try
+                Return New FileStream(file, mode, access, FileShare.None)
+            Catch ex As IOException When attempt < Retries
+                attempt += 1
+                Thread.Sleep(RetryDelayMs)
+            End Try
+        Loop
+    End Function
 End Class
