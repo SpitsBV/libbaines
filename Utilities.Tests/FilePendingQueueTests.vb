@@ -41,7 +41,7 @@ Public Class FilePendingQueueTests
             .Message = "boom", .ExceptionType = "System.InvalidOperationException",
             .Trace = "at X" & vbCrLf & "at Y", .SqlNumber = 547, .SqlSeverity = 16, .SqlState = 1,
             .SqlProcedure = "dbo.p_x", .SqlLine = 12, .SqlServer = "SRV",
-            .LocalRef = localRef, .Created = New DateTime(2026, 10, 20, 14, 35, 12),
+            .LocalRef = localRef, .CreatedUtc = New DateTime(2026, 10, 20, 14, 35, 12, DateTimeKind.Utc),
             .TargetServer = "SLUCHDB02", .TargetDatabase = "UPLUS2"}
     End Function
 
@@ -74,14 +74,15 @@ Public Class FilePendingQueueTests
         Assert.AreEqual(original.SqlLine, e.SqlLine)
         Assert.AreEqual(original.SqlServer, e.SqlServer)
         Assert.AreEqual(original.LocalRef, e.LocalRef)
-        Assert.AreEqual(original.Created, e.Created)
+        Assert.AreEqual(original.CreatedUtc, e.CreatedUtc)
+        Assert.AreEqual(DateTimeKind.Utc, e.CreatedUtc.Value.Kind)
         Assert.AreEqual(original.TargetServer, e.TargetServer)
         Assert.AreEqual(original.TargetDatabase, e.TargetDatabase)
 
         Dim second As ErrorLogEntry = lines(1).Entry
         Assert.AreEqual("second", second.Message)
         Assert.IsNull(second.SqlNumber)
-        Assert.IsFalse(second.Created.HasValue)
+        Assert.IsFalse(second.CreatedUtc.HasValue)
     End Sub
 
     <TestMethod>

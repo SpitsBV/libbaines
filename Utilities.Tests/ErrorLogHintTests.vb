@@ -77,7 +77,7 @@ Public Class ErrorLogHintTests
                     ExpectsWrite = True
                 Case Row.WriterThrowsConnection53
                     ErrorLog.Configure(ConnectionString, "UPLUS", "1.2.3")
-                    Writer.ThrowOnWrite = New InvalidOperationException("writer exploded")
+                    Writer.ThrowOnWrite = SqlExceptionFactory.Create(53)
                     Ex = If(exOverride, SqlExceptionFactory.Create(53, message:="network path"))
                     BaseText = WithLocalCode(ErrorLog.ConnectionFailedText)
                     ExpectsWrite = True
@@ -328,7 +328,7 @@ Public Class ErrorLogHintTests
         For Each number As Integer In New Integer() {53, 547}
             For Each h As String In New String() {Nothing, Hint}
                 Dim s As New Scenario(Row.ConfiguredSqlWriteOk, SqlExceptionFactory.Create(number))
-                s.Writer.ThrowOnWrite = New InvalidOperationException("writer boom")
+                s.Writer.ThrowOnWrite = SqlExceptionFactory.Create(number)
                 s.Presenter.ThrowOnShow = New InvalidOperationException("presenter boom")
                 s.Fallback.ThrowOnWrite = New InvalidOperationException("fallback boom")
                 Dim failure As String = WithLocalCode(If(number = 53, ErrorLog.ConnectionFailedText, ErrorLog.LogFailedText))

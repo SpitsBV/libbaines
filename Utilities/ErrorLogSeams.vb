@@ -40,10 +40,12 @@ Friend NotInheritable Class ErrorLogEntry
     Public Property SqlProcedure As String
     Public Property SqlLine As Integer?
     Public Property SqlServer As String
-    ' CH-238: set only when the database write failed and the entry was queued locally. Created is
-    ' the moment of the error; Nothing on a direct write, where the database default applies.
+    ' CH-238: set only when the database write failed and the entry was queued locally. CreatedUtc
+    ' is the moment of the error in UTC (DateTimeKind.Utc), so a client and a database server in
+    ' different timezones agree; the proc converts it to server local time. Nothing on a direct
+    ' write, where the database default applies.
     Public Property LocalRef As String
-    Public Property Created As DateTime?
+    Public Property CreatedUtc As DateTime?
     ' CH-238: DataSource and InitialCatalog of the configured connection, so a queued entry is
     ' replayed only into the database it was meant for.
     Public Property TargetServer As String
@@ -53,7 +55,7 @@ Friend NotInheritable Class ErrorLogEntry
     ' administrator reading the file can match the code the user passes on.
     Public Overrides Function ToString() As String
         Dim text As String = String.Format("{0:yyyy-MM-dd HH:mm:ss} {1} {2} {3}@{4} [{5}] SQL {6}: {7}{8}{9}",
-                             If(Created, DateTime.Now), App, AppVersion, Usr, Machine, Context,
+                             If(CreatedUtc, DateTime.UtcNow).ToLocalTime(), App, AppVersion, Usr, Machine, Context,
                              If(SqlNumber.HasValue, SqlNumber.Value.ToString(), "-"),
                              Message, Environment.NewLine, Trace)
         If Not String.IsNullOrEmpty(Reason) Then text = "Reason: " & Reason & Environment.NewLine & text
@@ -107,9 +109,8 @@ Friend NotInheritable Class SqlErrorLogWriter
             ' CH-238: set on a replayed entry only; the proc ignores a second insert of the same local_ref.
             cmd.Parameters.Add("@local_ref", SqlDbType.VarChar, 30).Value =
                 If(String.IsNullOrEmpty(entry.LocalRef), DBNull.Value, CObj(entry.LocalRef))
-            ' Created is client-local time and goes into the server-local datetime column as is: this
-            ' assumes client and database server share a timezone.
-            cmd.Parameters.Add("@created", SqlDbType.DateTime).Value = DbValue(entry.Created)
+            ' UTC; the proc converts it to server local time.
+            cmd.Parameters.Add("@created_utc", SqlDbType.DateTime).Value = DbValue(entry.CreatedUtc)
             conn.Open()
             Using reader As SqlDataReader = cmd.ExecuteReader()
                 If Not reader.Read() Then
@@ -296,9 +297,7 @@ Friend NotInheritable Class FilePendingQueue
     Private Shared Function Parse(serializer As JavaScriptSerializer, raw As String) As ErrorLogEntry
         Try
             Dim entry As ErrorLogEntry = serializer.Deserialize(Of ErrorLogEntry)(raw)
-            ' JavaScriptSerializer writes DateTime as UTC; Created is local time. The writer sends it to
-            ' a server-local datetime column, assuming client and database server share a timezone.
-            If entry IsNot Nothing AndAlso entry.Created.HasValue Then entry.Created = entry.Created.Value.ToLocalTime()
+            ' JavaScriptSerializer reads DateTime back as DateTimeKind.Utc, which is what CreatedUtc is.
             Return entry
         Catch ex As Exception
             ' ErrorLog: bewust genegeerd, a corrupt line is returned with Entry = Nothing for the caller to reject.

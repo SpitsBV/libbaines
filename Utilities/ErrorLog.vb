@@ -152,7 +152,7 @@ Public NotInheritable Class ErrorLog
             Catch writeEx As Exception
                 Dim localRef As String = NewLocalRef()
                 entry.LocalRef = localRef
-                entry.Created = DateTime.Now
+                entry.CreatedUtc = DateTime.UtcNow
                 Dim queueFailure As String = ""
                 Try
                     _queue.Append(entry)
@@ -169,7 +169,10 @@ Public NotInheritable Class ErrorLog
                     Debug.WriteLine("ErrorLog: fallback failed for local code " & localRef & queueFailure &
                                     Environment.NewLine & fallbackEx.ToString())
                 End Try
-                text = If(sqlEx IsNot Nothing AndAlso IsConnectionError(sqlEx), ConnectionFailedText, LogFailedText) &
+                ' The text follows the write failure: the database being unreachable is what the user
+                ' needs to know, whatever the original exception was.
+                Dim writeSqlEx As SqlException = FindSqlException(writeEx)
+                text = If(writeSqlEx IsNot Nothing AndAlso IsConnectionError(writeSqlEx), ConnectionFailedText, LogFailedText) &
                        vbCrLf & vbCrLf & String.Format(LocalCodeText, localRef)
             Finally
                 _reporting = False
@@ -210,8 +213,9 @@ Public NotInheritable Class ErrorLog
 
     ''' <summary>
     ''' Writes the queued entries of the configured server and database to the database and removes
-    ''' them from the queue. Lines of other targets stay. A connection error stops the replay (the
-    ''' rest waits for the next Configure); any other failure rejects that one line. Shows nothing,
+    ''' them from the queue. Lines of other targets stay. A connection error, or a proc that cannot
+    ''' take the call yet (8144, 2812), stops the replay (the rest waits for the next Configure); any
+    ''' other failure rejects that one line. Shows nothing,
     ''' never throws. While another replay runs it returns at once and that replay runs once more
     ''' when it ends.
     ''' </summary>
@@ -262,15 +266,19 @@ Public NotInheritable Class ErrorLog
                     processed.Add(line)
                 Catch writeEx As Exception
                     Dim sqlEx As SqlException = FindSqlException(writeEx)
-                    If sqlEx IsNot Nothing AndAlso IsConnectionError(sqlEx) Then
-                        ' Database unreachable: keep this line and the rest for the next replay.
+                    If sqlEx IsNot Nothing AndAlso (IsConnectionError(sqlEx) OrElse IsProcNotReady(sqlEx)) Then
+                        ' Database unreachable, or its p_insert_error_log is older than this client
+                        ' (GUI released before the uo-sql publish): keep this line and the rest for
+                        ' the next replay.
                         Dim kept As Integer = 0
                         For k As Integer = i To lines.Length - 1
                             If lines(k).Entry IsNot Nothing AndAlso IsTarget(lines(k), server, database) Then kept += 1
                         Next
                         WriteReplayFailure(fallback, String.Format(CultureInfo.InvariantCulture,
-                            "Replay stopped at local code {0}, database unreachable, {1} lines kept",
-                            line.Entry.LocalRef, kept), writeEx)
+                            "Replay stopped at local code {0}, {1}, {2} lines kept",
+                            line.Entry.LocalRef,
+                            If(IsConnectionError(sqlEx), "database unreachable", "p_insert_error_log cannot take it yet"),
+                            kept), writeEx)
                         Exit For
                     End If
                     rejected.Add(line)
@@ -366,6 +374,12 @@ Public NotInheritable Class ErrorLog
 
     Private Shared Function IsConnectionError(sqlEx As SqlException) As Boolean
         Return Array.IndexOf(ConnectionErrorNumbers, sqlEx.Number) >= 0
+    End Function
+
+    ' 8144 too many arguments, 2812 procedure not found: the database runs an older (or no)
+    ' p_insert_error_log. The line is fine; it waits for the uo-sql publish.
+    Private Shared Function IsProcNotReady(sqlEx As SqlException) As Boolean
+        Return sqlEx.Number = 8144 OrElse sqlEx.Number = 2812
     End Function
 
     Private Shared Sub WriteLastResort(ex As Exception, context As String, reportEx As Exception)

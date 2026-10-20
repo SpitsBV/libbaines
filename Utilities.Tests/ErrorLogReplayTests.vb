@@ -9,7 +9,7 @@ Public Class ErrorLogReplayTests
 
     ' DataSource "." and InitialCatalog "x": queued lines for ./x belong to this connection.
     Private Const ConnectionString As String = "Data Source=.;Initial Catalog=x;Integrated Security=True"
-    Private Shared ReadOnly Created As New DateTime(2026, 10, 20, 14, 35, 12)
+    Private Shared ReadOnly CreatedUtc As New DateTime(2026, 10, 20, 14, 35, 12, DateTimeKind.Utc)
 
     Private _writer As FakeWriter
     Private _presenter As FakePresenter
@@ -44,7 +44,7 @@ Public Class ErrorLogReplayTests
         Dim line As New PendingLine With {
             .Raw = "raw " & localRef,
             .Entry = New ErrorLogEntry With {
-                .App = "UPLUS", .Message = "m " & localRef, .LocalRef = localRef, .Created = Created,
+                .App = "UPLUS", .Message = "m " & localRef, .LocalRef = localRef, .CreatedUtc = CreatedUtc,
                 .TargetServer = server, .TargetDatabase = database}}
         _queue.AddLine(line)
         Return line
@@ -65,8 +65,8 @@ Public Class ErrorLogReplayTests
         Assert.AreEqual(2, _writer.CallCount)
         Assert.AreEqual("F1", _writer.Entries(0).LocalRef)
         Assert.AreEqual("F2", _writer.Entries(1).LocalRef)
-        Assert.AreEqual(Created, _writer.Entries(0).Created)
-        Assert.AreEqual(Created, _writer.Entries(1).Created)
+        Assert.AreEqual(CreatedUtc, _writer.Entries(0).CreatedUtc)
+        Assert.AreEqual(CreatedUtc, _writer.Entries(1).CreatedUtc)
         Assert.AreEqual(1, _queue.RemoveCalls.Length)
         CollectionAssert.AreEqual({l1, l2}, _queue.RemoveCalls(0).Item1)
         Assert.AreEqual(0, _queue.RemoveCalls(0).Item2.Length)
@@ -113,6 +113,23 @@ Public Class ErrorLogReplayTests
         Assert.AreEqual(2, _queue.Entries.Length)
         ' Debug is compiled out of Release: the stop must be in the fallback file.
         Assert.AreEqual(1, _fallback.Written.Count(Function(w) w.Contains("Replay stopped at local code F1, database unreachable, 2 lines kept")))
+    End Sub
+
+    ' 8144 (too many arguments): the database still runs the proc without @created_utc. The line
+    ' must wait for the uo-sql publish, not be rejected.
+    <TestMethod>
+    Public Sub Replay_ProcTooManyArguments_StopsAndKeepsRest()
+        ConfigureLogging()
+        AddLine("F1")
+        AddLine("F2")
+        ThrowForFirst(SqlExceptionFactory.Create(8144))
+
+        ErrorLog.ReplayPending()
+
+        Assert.AreEqual(1, _writer.CallCount)
+        Assert.AreEqual(0, _queue.RemoveCalls.Length)
+        Assert.AreEqual(2, _queue.Entries.Length)
+        Assert.AreEqual(1, _fallback.Written.Count(Function(w) w.Contains("Replay stopped at local code F1, p_insert_error_log cannot take it yet, 2 lines kept")))
     End Sub
 
     <TestMethod>

@@ -452,7 +452,7 @@ Public Class ErrorLogTests
     <TestMethod>
     Public Sub WriterThrows_ConnectionError_PresenterShowsConnectionFailedTextAndLocalCode()
         ConfigureLogging()
-        _writer.ThrowOnWrite = New InvalidOperationException("writer exploded")
+        _writer.ThrowOnWrite = SqlExceptionFactory.Create(53)
 
         Dim result As Integer? = ErrorLog.Report(SqlExceptionFactory.Create(53), "ctx")
 
@@ -466,7 +466,7 @@ Public Class ErrorLogTests
     <TestMethod>
     Public Sub WriterThrows_ConnectionError_WrappedSql_StillConnectionText()
         ConfigureLogging()
-        _writer.ThrowOnWrite = New InvalidOperationException("writer exploded")
+        _writer.ThrowOnWrite = Wrap(SqlExceptionFactory.Create(53), 2)
 
         ErrorLog.Report(Wrap(SqlExceptionFactory.Create(53), 2), "ctx")
 
@@ -478,7 +478,7 @@ Public Class ErrorLogTests
         For Each number As Integer In New Integer() {-1, 2, 53, 233, 4060, 10053, 10054, 10060, 18456, 40613}
             Init()
             ConfigureLogging()
-            _writer.ThrowOnWrite = New InvalidOperationException("writer exploded")
+            _writer.ThrowOnWrite = SqlExceptionFactory.Create(number)
 
             ErrorLog.Report(SqlExceptionFactory.Create(number), "ctx")
 
@@ -488,10 +488,32 @@ Public Class ErrorLogTests
     End Sub
 
     <TestMethod>
+    Public Sub WriterThrowsConnection_NonSqlOriginal_ShowsConnectionFailedTextAndLocalCode()
+        ConfigureLogging()
+        _writer.ThrowOnWrite = SqlExceptionFactory.Create(53)
+
+        Dim result As Integer? = ErrorLog.Report(New InvalidOperationException("boom"), "ctx")
+
+        Assert.IsFalse(result.HasValue)
+        Assert.AreEqual(1, _presenter.CallCount)
+        Assert.AreEqual(FailedText(ErrorLog.ConnectionFailedText), _presenter.Shown(0))
+    End Sub
+
+    <TestMethod>
+    Public Sub WriterThrowsNonSql_ConnectionOriginal_ShowsLogFailedText()
+        ConfigureLogging()
+        _writer.ThrowOnWrite = New InvalidOperationException("writer exploded")
+
+        ErrorLog.Report(SqlExceptionFactory.Create(53), "ctx")
+
+        Assert.AreEqual(FailedText(ErrorLog.LogFailedText), _presenter.Shown(0))
+    End Sub
+
+    <TestMethod>
     Public Sub WriterThrows_CustomConnectionFailedText_IsShown()
         ConfigureLogging()
         ErrorLog.ConnectionFailedText = "custom connection text"
-        _writer.ThrowOnWrite = New InvalidOperationException("writer exploded")
+        _writer.ThrowOnWrite = SqlExceptionFactory.Create(53)
 
         ErrorLog.Report(SqlExceptionFactory.Create(53), "ctx")
 
@@ -865,7 +887,7 @@ Public Class ErrorLogTests
     Public Sub Report_WriterThrows_QueuesEntryWithLocalRef()
         ConfigureLogging()
         _writer.ThrowOnWrite = New InvalidOperationException("db")
-        Dim before As DateTime = DateTime.Now
+        Dim before As DateTime = DateTime.UtcNow
 
         Dim result As Integer? = ErrorLog.Report(Thrown(New InvalidOperationException("boom")), "ctx")
 
@@ -873,8 +895,9 @@ Public Class ErrorLogTests
         Assert.AreEqual(1, _queue.Entries.Length)
         Dim e As ErrorLogEntry = _queue.Entries(0)
         StringAssert.Matches(e.LocalRef, New Regex(LocalRefPattern))
-        Assert.IsTrue(e.Created.HasValue)
-        Assert.IsTrue(e.Created.Value >= before.AddSeconds(-1) AndAlso e.Created.Value <= DateTime.Now.AddSeconds(1))
+        Assert.IsTrue(e.CreatedUtc.HasValue)
+        Assert.AreEqual(DateTimeKind.Utc, e.CreatedUtc.Value.Kind)
+        Assert.IsTrue(e.CreatedUtc.Value >= before.AddSeconds(-1) AndAlso e.CreatedUtc.Value <= DateTime.UtcNow.AddSeconds(1))
         Assert.AreEqual(".", e.TargetServer)
         Assert.AreEqual("x", e.TargetDatabase)
         Assert.AreEqual("boom", e.Message)
@@ -894,7 +917,7 @@ Public Class ErrorLogTests
 
         Dim e As ErrorLogEntry = _writer.Entries(0)
         Assert.IsNull(e.LocalRef)
-        Assert.IsFalse(e.Created.HasValue)
+        Assert.IsFalse(e.CreatedUtc.HasValue)
         Assert.AreEqual(".", e.TargetServer)
         Assert.AreEqual("x", e.TargetDatabase)
         Assert.AreEqual(0, _queue.Entries.Length)
@@ -903,7 +926,7 @@ Public Class ErrorLogTests
     <TestMethod>
     Public Sub Report_QueueThrows_StillShowsLocalCodeAndWritesFallback()
         ConfigureLogging()
-        _writer.ThrowOnWrite = New InvalidOperationException("db")
+        _writer.ThrowOnWrite = SqlExceptionFactory.Create(53)
         _queue.ThrowOnAppend = New IOException("queue file locked")
 
         Dim result As Integer? = Nothing
