@@ -138,7 +138,10 @@ ByVal e As UnhandledExceptionEventArgs)
         Dim EX As Exception
         EX = e.ExceptionObject
         If ErrorLog.IsEnabled Then
-            ErrorLog.Report(EX, "Onafgevangen fout (achtergrond)")
+            ' This handler can run on a background thread and the process ends when it returns, so a
+            ' box posted to the UI thread would never show: log, then show the text here and now.
+            Dim t As String = ErrorLog.ReportText(EX, "Onafgevangen fout (achtergrond)")
+            If t IsNot Nothing Then MessageBoxPresenter.ShowBox(t)
         Else
             MsgBox(EX.StackTrace)
         End If

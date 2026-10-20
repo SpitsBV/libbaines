@@ -151,7 +151,7 @@ Friend NotInheritable Class MessageBoxPresenter
 
     ' MsgBox without a title would caption the dialog with this assembly (Utilities); keep the
     ' application's name, as the MsgBox call in the application itself did.
-    Private Shared Sub ShowBox(text As String)
+    Friend Shared Sub ShowBox(text As String)
         Dim entry As Reflection.Assembly = Reflection.Assembly.GetEntryAssembly()
         If entry Is Nothing Then
             MsgBox(text)

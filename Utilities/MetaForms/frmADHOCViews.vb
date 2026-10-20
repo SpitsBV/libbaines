@@ -207,7 +207,9 @@ Public Class frmAdhocViews
             Catch ex As Exception
                 Dim strT As String = statics.get_txt_header("The ADHOC view did not execute correctly. Exception message was ", "User advice in frmADHOCViews.", "User information")
                 If ErrorLog.IsEnabled Then
-                    ErrorLog.Report(ex, "frmAdhocViews.btnShowData_Click", hint:=strT)
+                    ' Only the first sentence: the rest of strT leads into the exception message.
+                    Dim iEnd As Integer = strT.IndexOf("."c)
+                    ErrorLog.Report(ex, "frmAdhocViews.btnShowData_Click", hint:=If(iEnd > 0, strT.Substring(0, iEnd + 1), strT.Trim()))
                 Else
                     MsgBox(strT + ex.Message)
                 End If

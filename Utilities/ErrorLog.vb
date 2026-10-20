@@ -42,8 +42,8 @@ Public NotInheritable Class ErrorLog
     Private Shared _seamsOverridden As Boolean
     ' 1 while ReplayPending runs.
     Private Shared _replaying As Integer
-    ' 1 when ReplayPending was called while a replay ran: run it once more afterwards, so a
-    ' Configure during the replay (new target or seams) is not left waiting.
+    ' 1 while a replay is requested and not yet started: a call during a running replay sets it, so
+    ' a Configure during the replay (new target or seams) is not left waiting.
     Private Shared _replayAgain As Integer
 
     <ThreadStatic> Private Shared _reporting As Boolean
@@ -216,16 +216,19 @@ Public NotInheritable Class ErrorLog
     ''' when it ends.
     ''' </summary>
     Friend Shared Sub ReplayPending()
-        If Interlocked.CompareExchange(_replaying, 1, 0) <> 0 Then
-            Interlocked.Exchange(_replayAgain, 1)
-            Return
-        End If
-        Try
-            ReplayOnce()
-        Finally
-            Interlocked.Exchange(_replaying, 0)
-        End Try
-        If Interlocked.Exchange(_replayAgain, 0) = 1 Then ReplayPending()
+        ' Request a replay, then run requests while this call holds the busy flag. A request made
+        ' just as the running replay releases the flag is picked up by the outer loop.
+        Interlocked.Exchange(_replayAgain, 1)
+        Do While Interlocked.CompareExchange(_replaying, 1, 0) = 0
+            Try
+                Do While Interlocked.Exchange(_replayAgain, 0) = 1
+                    ReplayOnce()
+                Loop
+            Finally
+                Interlocked.Exchange(_replaying, 0)
+            End Try
+            If Volatile.Read(_replayAgain) = 0 Then Exit Do
+        Loop
     End Sub
 
     Private Shared Sub ReplayOnce()
