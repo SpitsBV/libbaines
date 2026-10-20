@@ -57,7 +57,7 @@ Public Class ErrorLogHintTests
                 Case Row.ConfiguredSqlWriteOk
                     ErrorLog.Configure(ConnectionString, "UPLUS", "1.2.3")
                     Ex = If(exOverride, SqlExceptionFactory.Create(547, message:="fk message"))
-                    BaseText = "T" & vbCrLf & vbCrLf & "Foutcode: 42. Geef deze code door aan de beheerder."
+                    BaseText = "T" & vbCrLf & vbCrLf & "Error code: 42. Pass this code on to the administrator."
                     ExpectedReturn = 42
                     ExpectsWrite = True
                 Case Row.WriterThrowsConnection53
@@ -130,7 +130,7 @@ Public Class ErrorLogHintTests
 
         Assert.AreEqual(42, result.Value)
         Assert.AreEqual("Hint tekst" & vbCrLf & vbCrLf & "T" & vbCrLf & vbCrLf &
-                        "Foutcode: 42. Geef deze code door aan de beheerder.", s.Presenter.Shown(0))
+                        "Error code: 42. Pass this code on to the administrator.", s.Presenter.Shown(0))
     End Sub
 
     <TestMethod>
@@ -284,7 +284,7 @@ Public Class ErrorLogHintTests
         Dim text As String = ErrorLog.ReportText(s.Ex, "ctx", "Hint tekst")
 
         Assert.AreEqual("Hint tekst" & vbCrLf & vbCrLf & "T" & vbCrLf & vbCrLf &
-                        "Foutcode: 42. Geef deze code door aan de beheerder.", text)
+                        "Error code: 42. Pass this code on to the administrator.", text)
         Assert.AreEqual(1, s.Writer.CallCount)
     End Sub
 
@@ -362,7 +362,7 @@ Public Class ErrorLogHintTests
         StringAssert.Contains(s.Fallback.Written(0), "inner")
         StringAssert.Contains(s.Fallback.Written(0), "writer's own failure")
         Assert.AreEqual(Hint & vbCrLf & vbCrLf & "T" & vbCrLf & vbCrLf &
-                        "Foutcode: 42. Geef deze code door aan de beheerder.", text)
+                        "Error code: 42. Pass this code on to the administrator.", text)
         Assert.AreEqual(0, s.Presenter.CallCount)
     End Sub
 
@@ -404,10 +404,10 @@ Public Class ErrorLogHintTests
         Dim texts As New HashSet(Of String)
         For Each t As Task(Of String) In tasks
             Assert.IsTrue(t.Result.StartsWith(Hint & vbCrLf & vbCrLf))
-            Assert.IsTrue(t.Result.Contains("Foutcode: "))
+            Assert.IsTrue(t.Result.Contains("Error code: "))
             texts.Add(t.Result)
         Next
-        Assert.AreEqual(20, texts.Count, "each call returns the foutcode of its own write")
+        Assert.AreEqual(20, texts.Count, "each call returns the error code of its own write")
     End Sub
 
 End Class

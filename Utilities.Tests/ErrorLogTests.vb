@@ -212,7 +212,7 @@ Public Class ErrorLogTests
     ' ------------------------------------------------------------------
 
     <TestMethod>
-    Public Sub Configured_SqlException_WriterSucceeds_ReturnsFoutcode()
+    Public Sub Configured_SqlException_WriterSucceeds_ReturnsErrorCode()
         ConfigureLogging()
         _writer.ResultId = 42
         _writer.ResultText = "T"
@@ -225,7 +225,7 @@ Public Class ErrorLogTests
     End Sub
 
     <TestMethod>
-    Public Sub Configured_SqlException_WriterSucceeds_PresenterShowsUserTextAndFoutcode()
+    Public Sub Configured_SqlException_WriterSucceeds_PresenterShowsUserTextAndErrorCode()
         ConfigureLogging()
         _writer.ResultId = 42
         _writer.ResultText = "T"
@@ -233,7 +233,7 @@ Public Class ErrorLogTests
         ErrorLog.Report(Thrown(SqlExceptionFactory.Create(547)), "ctx")
 
         Assert.AreEqual(1, _presenter.CallCount)
-        Assert.AreEqual("T" & vbCrLf & vbCrLf & "Foutcode: 42. Geef deze code door aan de beheerder.", _presenter.Shown(0))
+        Assert.AreEqual("T" & vbCrLf & vbCrLf & "Error code: 42. Pass this code on to the administrator.", _presenter.Shown(0))
     End Sub
 
     <TestMethod>
@@ -344,7 +344,7 @@ Public Class ErrorLogTests
     End Sub
 
     <TestMethod>
-    Public Sub WriterThrows_ConnectionError_PresenterShowsConnectionFailedText_NoFoutcode()
+    Public Sub WriterThrows_ConnectionError_PresenterShowsConnectionFailedText_NoErrorCode()
         ConfigureLogging()
         _writer.ThrowOnWrite = New InvalidOperationException("writer exploded")
 
@@ -352,7 +352,7 @@ Public Class ErrorLogTests
 
         Assert.AreEqual(1, _presenter.CallCount)
         Assert.AreEqual(ErrorLog.ConnectionFailedText, _presenter.Shown(0))
-        Assert.IsFalse(_presenter.Shown(0).Contains("Foutcode"))
+        Assert.IsFalse(_presenter.Shown(0).Contains("Error code"))
     End Sub
 
     <TestMethod>
@@ -419,6 +419,18 @@ Public Class ErrorLogTests
         ErrorLog.Report(SqlExceptionFactory.Create(547), "ctx")
 
         Assert.AreEqual("custom log text", _presenter.Shown(0))
+    End Sub
+
+    <TestMethod>
+    Public Sub WriterSucceeds_CustomErrorCodeText_IsShownWithId()
+        ConfigureLogging()
+        ErrorLog.ErrorCodeText = "Error code: {0}. Pass this code on."
+        _writer.ResultId = 42
+        _writer.ResultText = "T"
+
+        ErrorLog.Report(Thrown(SqlExceptionFactory.Create(547)), "ctx")
+
+        Assert.AreEqual("T" & vbCrLf & vbCrLf & "Error code: 42. Pass this code on.", _presenter.Shown(0))
     End Sub
 
     ' ------------------------------------------------------------------
@@ -583,7 +595,7 @@ Public Class ErrorLogTests
         Assert.IsTrue(outerResult.HasValue)
         Assert.AreEqual(42, outerResult.Value)
         Assert.AreEqual(1, _presenter.CallCount)
-        StringAssert.Contains(_presenter.Shown(0), "Foutcode: 42.")
+        StringAssert.Contains(_presenter.Shown(0), "Error code: 42.")
     End Sub
 
     <TestMethod>

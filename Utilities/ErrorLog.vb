@@ -8,15 +8,17 @@ Imports System.Windows.Forms
 ''' <summary>
 ''' CH-227: central error reporting. Not configured (spits): behaves exactly as the
 ''' MsgBox(ex.Message) it replaces. Configured (UPLUS): SQL errors are logged through
-''' dbo.p_insert_error_log and the user gets a generic text with a foutcode.
+''' dbo.p_insert_error_log and the user gets a generic text with an error code.
 ''' Non-SQL exceptions keep MsgBox(ex.Message) until CH-238 extends logging to them.
 ''' </summary>
 Public NotInheritable Class ErrorLog
 
-    Private Const DefaultConnectionFailedText As String =
-        "Er kon geen verbinding met de database worden gemaakt. Probeer het later opnieuw of neem contact op met de beheerder."
-    Private Const DefaultLogFailedText As String =
-        "Er is een fout opgetreden. De fout kon niet worden vastgelegd; neem contact op met de beheerder."
+    Public Const DefaultConnectionFailedText As String =
+        "The database connection could not be established. Try again later or contact the administrator."
+    Public Const DefaultLogFailedText As String =
+        "An error occurred. The error could not be logged; contact the administrator."
+    Public Const DefaultErrorCodeText As String =
+        "Error code: {0}. Pass this code on to the administrator."
 
     ' SQL error numbers that mean the database could not be reached. Mirrors the 9002 rows in
     ' b_error_sql_number: when the database is down there is no mapping to read.
@@ -39,6 +41,8 @@ Public NotInheritable Class ErrorLog
 
     Public Shared Property ConnectionFailedText As String = DefaultConnectionFailedText
     Public Shared Property LogFailedText As String = DefaultLogFailedText
+    ' Format string, {0} is the error log id.
+    Public Shared Property ErrorCodeText As String = DefaultErrorCodeText
 
     Public Shared ReadOnly Property IsEnabled As Boolean
         Get
@@ -66,7 +70,7 @@ Public NotInheritable Class ErrorLog
     End Sub
 
     ''' <summary>
-    ''' Handles an exception caught by the caller. Returns the foutcode when a log row was written.
+    ''' Handles an exception caught by the caller. Returns the error code when a log row was written.
     ''' A non-empty hint is shown as a first paragraph above the text Report shows; it is never logged.
     ''' Never throws.
     ''' </summary>
@@ -97,7 +101,7 @@ Public NotInheritable Class ErrorLog
     End Function
 
     ' Shared path of Report and ReportText: logs when enabled and SQL-related, returns the text to show
-    ' (Nothing when there is none) and the foutcode when a row was written. Never throws.
+    ' (Nothing when there is none) and the error code when a row was written. Never throws.
     Private Shared Function Process(ex As Exception, context As String, hint As String,
                                     ByRef logId As Integer?) As String
         logId = Nothing
@@ -119,8 +123,7 @@ Public NotInheritable Class ErrorLog
                 Dim result As ErrorLogResult = _writer.Write(entry)
                 logId = result.ErrorLogId
                 text = result.UserMessage & vbCrLf & vbCrLf &
-                       "Foutcode: " & result.ErrorLogId.ToString() &
-                       ". Geef deze code door aan de beheerder."
+                       String.Format(ErrorCodeText, result.ErrorLogId)
             Catch writeEx As Exception
                 Try
                     _fallback.Write(entry.ToString() & Environment.NewLine &
@@ -181,6 +184,7 @@ Public NotInheritable Class ErrorLog
             _seamsOverridden = False
             ConnectionFailedText = DefaultConnectionFailedText
             LogFailedText = DefaultLogFailedText
+            ErrorCodeText = DefaultErrorCodeText
         End SyncLock
     End Sub
 
