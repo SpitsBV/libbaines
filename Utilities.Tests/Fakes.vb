@@ -109,8 +109,10 @@ Friend NotInheritable Class FakePendingQueue
     Implements IPendingQueue
 
     Private ReadOnly _sync As New Object()
-    Private _lines As New List(Of PendingLine)
+    Private ReadOnly _lines As New List(Of PendingLine)
     Private ReadOnly _rejected As New List(Of PendingLine)
+    Private ReadOnly _removeCalls As New List(Of Tuple(Of PendingLine(), PendingLine()))
+    Private _nextLine As Integer
 
     ''' <summary>When set, Append throws this instead of queueing (a locked queue file).</summary>
     Friend Property ThrowOnAppend As Exception
@@ -132,11 +134,28 @@ Friend NotInheritable Class FakePendingQueue
         End Get
     End Property
 
+    ''' <summary>Every Remove call: Item1 = processed, Item2 = rejected.</summary>
+    Friend ReadOnly Property RemoveCalls As Tuple(Of PendingLine(), PendingLine())()
+        Get
+            SyncLock _sync
+                Return _removeCalls.ToArray()
+            End SyncLock
+        End Get
+    End Property
+
+    ''' <summary>Adds a line as it would be in the file (for example a corrupt one with Entry = Nothing).</summary>
+    Friend Sub AddLine(line As PendingLine)
+        SyncLock _sync
+            _lines.Add(line)
+        End SyncLock
+    End Sub
+
     Public Sub Append(entry As ErrorLogEntry) Implements IPendingQueue.Append
         Dim toThrow As Exception = ThrowOnAppend
         If toThrow IsNot Nothing Then Throw toThrow
         SyncLock _sync
-            _lines.Add(New PendingLine With {.Raw = "", .Entry = entry})
+            _nextLine += 1
+            _lines.Add(New PendingLine With {.Raw = "line " & _nextLine.ToString(), .Entry = entry})
         End SyncLock
     End Sub
 
@@ -146,10 +165,15 @@ Friend NotInheritable Class FakePendingQueue
         End SyncLock
     End Function
 
-    Public Sub Rewrite(keep As PendingLine(), rejected As PendingLine()) Implements IPendingQueue.Rewrite
+    ' Same semantics as FilePendingQueue.Remove: one occurrence per Raw match is removed.
+    Public Sub Remove(processed As PendingLine(), rejected As PendingLine()) Implements IPendingQueue.Remove
         SyncLock _sync
-            _lines = New List(Of PendingLine)(keep)
+            _removeCalls.Add(Tuple.Create(processed, rejected))
             _rejected.AddRange(rejected)
+            For Each line As PendingLine In processed.Concat(rejected)
+                Dim index As Integer = _lines.FindIndex(Function(l) l.Raw = line.Raw)
+                If index >= 0 Then _lines.RemoveAt(index)
+            Next
         End SyncLock
     End Sub
 

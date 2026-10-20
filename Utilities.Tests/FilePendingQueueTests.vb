@@ -105,23 +105,35 @@ Public Class FilePendingQueueTests
     End Sub
 
     <TestMethod>
-    Public Sub Rewrite_KeepsOnlyKeptLines_AppendsRejectedToRejectedFile()
+    Public Sub Remove_DropsProcessedAndRejected_KeepsLinesAppendedAfterReadAll()
         _queue.Append(FullEntry("F20261020143512AAAA"))
         _queue.Append(FullEntry("F20261020143512BBBB"))
         _queue.Append(FullEntry("F20261020143512CCCC"))
         Dim lines As PendingLine() = _queue.ReadAll()
+        _queue.Append(FullEntry("F20261020143512DDDD"))
 
-        _queue.Rewrite({lines(1)}, {lines(0)})
-        _queue.Rewrite(_queue.ReadAll(), {lines(2)})
+        _queue.Remove({lines(0)}, {lines(1)})
 
         Dim remaining As PendingLine() = _queue.ReadAll()
-        Assert.AreEqual(1, remaining.Length)
-        Assert.AreEqual("F20261020143512BBBB", remaining(0).Entry.LocalRef)
+        Assert.AreEqual(2, remaining.Length)
+        Assert.AreEqual("F20261020143512CCCC", remaining(0).Entry.LocalRef)
+        Assert.AreEqual("F20261020143512DDDD", remaining(1).Entry.LocalRef, "a line appended after ReadAll is kept")
         Dim rejected As String() = File.ReadAllLines(RejectedFile)
-        Assert.AreEqual(2, rejected.Length, "rejected lines are appended, not overwritten")
-        StringAssert.Contains(rejected(0), lines(0).Raw)
-        StringAssert.Contains(rejected(1), lines(2).Raw)
+        Assert.AreEqual(1, rejected.Length)
+        StringAssert.Contains(rejected(0), lines(1).Raw)
         StringAssert.Matches(rejected(0), New Text.RegularExpressions.Regex("^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2} "))
+    End Sub
+
+    <TestMethod>
+    Public Sub Remove_DuplicateRaw_RemovesOneOccurrencePerMatch()
+        Dim entry As ErrorLogEntry = FullEntry("F20261020143512AAAA")
+        _queue.Append(entry)
+        _queue.Append(entry)
+
+        _queue.Remove({_queue.ReadAll()(0)}, New PendingLine() {})
+
+        Assert.AreEqual(1, _queue.ReadAll().Length)
+        Assert.IsFalse(File.Exists(RejectedFile), "no rejected lines, no rejected file")
     End Sub
 
     <TestMethod>

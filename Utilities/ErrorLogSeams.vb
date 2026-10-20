@@ -4,6 +4,7 @@ Option Explicit On
 Imports System.Data
 Imports System.Data.SqlClient
 Imports System.IO
+Imports System.Linq
 Imports System.Threading
 Imports System.Web.Script.Serialization
 
@@ -184,8 +185,10 @@ Friend Interface IPendingQueue
     Sub Append(entry As ErrorLogEntry)
     ' Corrupt lines come back with Entry = Nothing.
     Function ReadAll() As PendingLine()
-    ' Replaces the queue with keep and appends rejected (with a timestamp) to the rejected file.
-    Sub Rewrite(keep As PendingLine(), rejected As PendingLine())
+    ' Under one lock: appends rejected (with a timestamp) to the rejected file and removes one
+    ' occurrence per processed or rejected line (matched on Raw) from the queue. Lines appended
+    ' after ReadAll stay in the queue.
+    Sub Remove(processed As PendingLine(), rejected As PendingLine())
 End Interface
 
 Friend NotInheritable Class PendingLine
@@ -243,20 +246,40 @@ Friend NotInheritable Class FilePendingQueue
         Return lines.ToArray()
     End Function
 
-    Public Sub Rewrite(keep As PendingLine(), rejected As PendingLine()) Implements IPendingQueue.Rewrite
-        Using stream As FileStream = OpenExclusive(_file, FileMode.Create, FileAccess.Write),
-              writer As New StreamWriter(stream)
-            For Each line As PendingLine In keep
-                writer.WriteLine(line.Raw)
+    Public Sub Remove(processed As PendingLine(), rejected As PendingLine()) Implements IPendingQueue.Remove
+        ' One exclusive handle on the queue for the whole operation, so an Append by another thread
+        ' or process cannot slip in between reading and writing back.
+        Using stream As FileStream = OpenExclusive(_file, FileMode.OpenOrCreate, FileAccess.ReadWrite)
+            If rejected.Length > 0 Then
+                Using rejectedStream As FileStream = OpenExclusive(_rejectedFile, FileMode.Append, FileAccess.Write),
+                      writer As New StreamWriter(rejectedStream)
+                    Dim stamp As String = DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss", Globalization.CultureInfo.InvariantCulture)
+                    For Each line As PendingLine In rejected
+                        writer.WriteLine(stamp & " " & line.Raw)
+                    Next
+                End Using
+            End If
+
+            Dim remaining As New List(Of String)
+            Using reader As New StreamReader(stream, New Text.UTF8Encoding(False), True, 4096, True)
+                Dim raw As String = reader.ReadLine()
+                While raw IsNot Nothing
+                    If raw.Trim().Length > 0 Then remaining.Add(raw)
+                    raw = reader.ReadLine()
+                End While
+            End Using
+            ' Multiset match: each processed or rejected line removes one occurrence.
+            For Each line As PendingLine In processed.Concat(rejected)
+                remaining.Remove(line.Raw)
             Next
-        End Using
-        If rejected.Length = 0 Then Return
-        Using stream As FileStream = OpenExclusive(_rejectedFile, FileMode.Append, FileAccess.Write),
-              writer As New StreamWriter(stream)
-            Dim stamp As String = DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss", Globalization.CultureInfo.InvariantCulture)
-            For Each line As PendingLine In rejected
-                writer.WriteLine(stamp & " " & line.Raw)
-            Next
+
+            stream.SetLength(0)
+            stream.Position = 0
+            Using writer As New StreamWriter(stream, New Text.UTF8Encoding(False), 4096, True)
+                For Each raw As String In remaining
+                    writer.WriteLine(raw)
+                Next
+            End Using
         End Using
     End Sub
 

@@ -156,7 +156,8 @@ Public NotInheritable Class ErrorLog
                                     "Logging to the database failed: " & writeEx.ToString() & queueFailure)
                 Catch fallbackEx As Exception
                     ' The fallback file is unavailable too; the user must still be informed.
-                    Debug.WriteLine("ErrorLog: fallback failed: " & fallbackEx.ToString())
+                    Debug.WriteLine("ErrorLog: fallback failed for local code " & localRef & queueFailure &
+                                    Environment.NewLine & fallbackEx.ToString())
                 End Try
                 text = If(sqlEx IsNot Nothing AndAlso IsConnectionError(sqlEx), ConnectionFailedText, LogFailedText) &
                        vbCrLf & vbCrLf & String.Format(LocalCodeText, localRef)
