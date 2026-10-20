@@ -111,6 +111,8 @@ Public Class ErrorLogReplayTests
         Assert.AreEqual(1, _writer.CallCount)
         Assert.AreEqual(0, _queue.RemoveCalls.Length)
         Assert.AreEqual(2, _queue.Entries.Length)
+        ' Debug is compiled out of Release: the stop must be in the fallback file.
+        Assert.AreEqual(1, _fallback.Written.Count(Function(w) w.Contains("Replay stopped at local code F1, database unreachable, 2 lines kept")))
     End Sub
 
     <TestMethod>
@@ -128,6 +130,7 @@ Public Class ErrorLogReplayTests
         CollectionAssert.AreEqual({l0}, _queue.RemoveCalls(0).Item1)
         Assert.AreEqual(0, _queue.RemoveCalls(0).Item2.Length)
         Assert.AreEqual(2, _queue.Entries.Length)
+        Assert.AreEqual(1, _fallback.Written.Count(Function(w) w.Contains("database unreachable, 2 lines kept")))
     End Sub
 
     <TestMethod>
@@ -203,6 +206,9 @@ Public Class ErrorLogReplayTests
 
     <TestMethod>
     Public Sub Replay_WhenNotEnabled_DoesNothing()
+        ' Writer, queue and target are all set, so only the enabled check can stop the write.
+        ConfigureLogging()
+        ErrorLog.Disable()
         AddLine("F1")
 
         ErrorLog.ReplayPending()
@@ -212,24 +218,34 @@ Public Class ErrorLogReplayTests
     End Sub
 
     <TestMethod>
-    Public Sub Replay_WhileRunning_SecondCallReturnsAtOnce()
+    Public Sub Replay_WhileRunning_SecondCallRunsAgainAfterwards()
         ConfigureLogging()
         AddLine("F1")
         Dim nested As Integer = 0
+        Dim callsInNested As Integer = -1
         _writer.OnWrite = Sub(e)
                               nested += 1
-                              If nested = 1 Then ErrorLog.ReplayPending()
+                              If nested = 1 Then
+                                  ' A line queued and a Configure during the replay.
+                                  AddLine("F2")
+                                  ErrorLog.ReplayPending()
+                                  callsInNested = _writer.CallCount
+                              End If
                           End Sub
 
         ErrorLog.ReplayPending()
 
-        Assert.AreEqual(1, _writer.CallCount, "the nested call wrote nothing")
-        Assert.AreEqual(1, _queue.RemoveCalls.Length)
+        Assert.AreEqual(1, callsInNested, "the nested call returned at once without writing")
+        Assert.AreEqual(2, _writer.CallCount, "the replay ran once more for F2")
+        Assert.AreEqual("F2", _writer.Entries(1).LocalRef)
+        Assert.AreEqual(2, _queue.RemoveCalls.Length)
+        Assert.AreEqual(0, _queue.Entries.Length)
 
-        ' The flag is released afterwards: a new line is replayed by the next call.
-        AddLine("F2")
+        ' The flags are released afterwards: a new line is replayed by the next call, once.
+        AddLine("F3")
         ErrorLog.ReplayPending()
-        Assert.AreEqual(2, _writer.CallCount)
+        Assert.AreEqual(3, _writer.CallCount)
+        Assert.AreEqual(3, _queue.RemoveCalls.Length)
     End Sub
 
 End Class

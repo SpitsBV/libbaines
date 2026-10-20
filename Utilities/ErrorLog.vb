@@ -42,6 +42,9 @@ Public NotInheritable Class ErrorLog
     Private Shared _seamsOverridden As Boolean
     ' 1 while ReplayPending runs.
     Private Shared _replaying As Integer
+    ' 1 when ReplayPending was called while a replay ran: run it once more afterwards, so a
+    ' Configure during the replay (new target or seams) is not left waiting.
+    Private Shared _replayAgain As Integer
 
     <ThreadStatic> Private Shared _reporting As Boolean
 
@@ -209,10 +212,23 @@ Public NotInheritable Class ErrorLog
     ''' Writes the queued entries of the configured server and database to the database and removes
     ''' them from the queue. Lines of other targets stay. A connection error stops the replay (the
     ''' rest waits for the next Configure); any other failure rejects that one line. Shows nothing,
-    ''' never throws, and returns at once while another replay runs.
+    ''' never throws. While another replay runs it returns at once and that replay runs once more
+    ''' when it ends.
     ''' </summary>
     Friend Shared Sub ReplayPending()
-        If Interlocked.CompareExchange(_replaying, 1, 0) <> 0 Then Return
+        If Interlocked.CompareExchange(_replaying, 1, 0) <> 0 Then
+            Interlocked.Exchange(_replayAgain, 1)
+            Return
+        End If
+        Try
+            ReplayOnce()
+        Finally
+            Interlocked.Exchange(_replaying, 0)
+        End Try
+        If Interlocked.Exchange(_replayAgain, 0) = 1 Then ReplayPending()
+    End Sub
+
+    Private Shared Sub ReplayOnce()
         Dim fallback As IFallbackLog = _fallback
         Try
             Dim writer As IErrorLogWriter
@@ -230,15 +246,14 @@ Public NotInheritable Class ErrorLog
 
             Dim processed As New List(Of PendingLine)
             Dim rejected As New List(Of PendingLine)
-            For Each line As PendingLine In queue.ReadAll()
+            Dim lines As PendingLine() = queue.ReadAll()
+            For i As Integer = 0 To lines.Length - 1
+                Dim line As PendingLine = lines(i)
                 If line.Entry Is Nothing Then
                     rejected.Add(line)
                     Continue For
                 End If
-                If Not String.Equals(line.Entry.TargetServer, server, StringComparison.OrdinalIgnoreCase) OrElse
-                   Not String.Equals(line.Entry.TargetDatabase, database, StringComparison.OrdinalIgnoreCase) Then
-                    Continue For
-                End If
+                If Not IsTarget(line, server, database) Then Continue For
                 Try
                     writer.Write(line.Entry)
                     processed.Add(line)
@@ -246,7 +261,13 @@ Public NotInheritable Class ErrorLog
                     Dim sqlEx As SqlException = FindSqlException(writeEx)
                     If sqlEx IsNot Nothing AndAlso IsConnectionError(sqlEx) Then
                         ' Database unreachable: keep this line and the rest for the next replay.
-                        Debug.WriteLine("ErrorLog: replay stopped at local code " & line.Entry.LocalRef & ": " & writeEx.Message)
+                        Dim kept As Integer = 0
+                        For k As Integer = i To lines.Length - 1
+                            If lines(k).Entry IsNot Nothing AndAlso IsTarget(lines(k), server, database) Then kept += 1
+                        Next
+                        WriteReplayFailure(fallback, String.Format(CultureInfo.InvariantCulture,
+                            "Replay stopped at local code {0}, database unreachable, {1} lines kept",
+                            line.Entry.LocalRef, kept), writeEx)
                         Exit For
                     End If
                     rejected.Add(line)
@@ -256,10 +277,13 @@ Public NotInheritable Class ErrorLog
             If processed.Count > 0 OrElse rejected.Count > 0 Then queue.Remove(processed.ToArray(), rejected.ToArray())
         Catch replayEx As Exception
             WriteReplayFailure(fallback, "Replay failed", replayEx)
-        Finally
-            Interlocked.Exchange(_replaying, 0)
         End Try
     End Sub
+
+    Private Shared Function IsTarget(line As PendingLine, server As String, database As String) As Boolean
+        Return String.Equals(line.Entry.TargetServer, server, StringComparison.OrdinalIgnoreCase) AndAlso
+               String.Equals(line.Entry.TargetDatabase, database, StringComparison.OrdinalIgnoreCase)
+    End Function
 
     Private Shared Sub WriteReplayFailure(fallback As IFallbackLog, what As String, ex As Exception)
         Debug.WriteLine("ErrorLog: " & what & ": " & ex.ToString())
@@ -282,6 +306,14 @@ Public NotInheritable Class ErrorLog
         End SyncLock
     End Sub
 
+    ' Tests: switch logging off but keep the seams and the target, so only the enabled check
+    ' stands between a call and a write.
+    Friend Shared Sub Disable()
+        SyncLock _sync
+            _enabled = False
+        End SyncLock
+    End Sub
+
     Friend Shared Sub Reset()
         SyncLock _sync
             _enabled = False
@@ -294,6 +326,7 @@ Public NotInheritable Class ErrorLog
             _targetServer = Nothing
             _targetDatabase = Nothing
             _seamsOverridden = False
+            _replayAgain = 0
             ConnectionFailedText = DefaultConnectionFailedText
             LogFailedText = DefaultLogFailedText
             ErrorCodeText = DefaultErrorCodeText
