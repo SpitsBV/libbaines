@@ -2,6 +2,7 @@ Option Strict On
 Option Explicit On
 
 Imports System.IO
+Imports System.Web.Script.Serialization
 Imports Microsoft.VisualStudio.TestTools.UnitTesting
 
 ' CH-238 - FilePendingQueue against a real temp folder.
@@ -10,29 +11,21 @@ Public Class FilePendingQueueTests
 
     Private _folder As String
     Private _queue As FilePendingQueue
+    Private _pendingFile As String
+    Private _rejectedFile As String
 
     <TestInitialize>
     Public Sub Init()
         _folder = Path.Combine(Path.GetTempPath(), "ErrorLogQueue_" & Guid.NewGuid().ToString("N"))
         _queue = New FilePendingQueue(New DirectoryInfo(_folder))
+        _pendingFile = Path.Combine(_folder, "ErrorLog_pending.jsonl")
+        _rejectedFile = Path.Combine(_folder, "ErrorLog_pending_rejected.txt")
     End Sub
 
     <TestCleanup>
     Public Sub Cleanup()
         If Directory.Exists(_folder) Then Directory.Delete(_folder, True)
     End Sub
-
-    Private ReadOnly Property PendingFile As String
-        Get
-            Return Path.Combine(_folder, "ErrorLog_pending.jsonl")
-        End Get
-    End Property
-
-    Private ReadOnly Property RejectedFile As String
-        Get
-            Return Path.Combine(_folder, "ErrorLog_pending_rejected.txt")
-        End Get
-    End Property
 
     Private Shared Function FullEntry(localRef As String) As ErrorLogEntry
         Return New ErrorLogEntry With {
@@ -54,30 +47,14 @@ Public Class FilePendingQueueTests
         Dim lines As PendingLine() = _queue.ReadAll()
 
         Assert.AreEqual(2, lines.Length)
-        Assert.AreEqual(2, File.ReadAllLines(PendingFile).Length, "one line per entry")
+        Assert.AreEqual(2, File.ReadAllLines(_pendingFile).Length, "one line per entry")
         Dim e As ErrorLogEntry = lines(0).Entry
         Assert.IsNotNull(e)
         Assert.IsFalse(String.IsNullOrEmpty(lines(0).Raw))
-        Assert.AreEqual(original.App, e.App)
-        Assert.AreEqual(original.AppVersion, e.AppVersion)
-        Assert.AreEqual(original.Usr, e.Usr)
-        Assert.AreEqual(original.Machine, e.Machine)
-        Assert.AreEqual(original.Context, e.Context)
-        Assert.AreEqual(original.Reason, e.Reason)
-        Assert.AreEqual(original.Message, e.Message)
-        Assert.AreEqual(original.ExceptionType, e.ExceptionType)
-        Assert.AreEqual(original.Trace, e.Trace)
-        Assert.AreEqual(original.SqlNumber, e.SqlNumber)
-        Assert.AreEqual(original.SqlSeverity, e.SqlSeverity)
-        Assert.AreEqual(original.SqlState, e.SqlState)
-        Assert.AreEqual(original.SqlProcedure, e.SqlProcedure)
-        Assert.AreEqual(original.SqlLine, e.SqlLine)
-        Assert.AreEqual(original.SqlServer, e.SqlServer)
-        Assert.AreEqual(original.LocalRef, e.LocalRef)
-        Assert.AreEqual(original.CreatedUtc, e.CreatedUtc)
+        ' FullEntry sets every public property, so a field lost on the way back serializes differently.
+        Dim js As New JavaScriptSerializer()
+        Assert.AreEqual(js.Serialize(original), js.Serialize(e))
         Assert.AreEqual(DateTimeKind.Utc, e.CreatedUtc.Value.Kind)
-        Assert.AreEqual(original.TargetServer, e.TargetServer)
-        Assert.AreEqual(original.TargetDatabase, e.TargetDatabase)
 
         Dim second As ErrorLogEntry = lines(1).Entry
         Assert.AreEqual("second", second.Message)
@@ -93,7 +70,7 @@ Public Class FilePendingQueueTests
     <TestMethod>
     Public Sub ReadAll_CorruptLine_ReturnsLineWithNothingEntry()
         _queue.Append(FullEntry("F20261020143512A7C3"))
-        File.AppendAllText(PendingFile, "{not json" & Environment.NewLine)
+        File.AppendAllText(_pendingFile, "{not json" & Environment.NewLine)
         _queue.Append(FullEntry("F20261020143513B8D4"))
 
         Dim lines As PendingLine() = _queue.ReadAll()
@@ -119,7 +96,7 @@ Public Class FilePendingQueueTests
         Assert.AreEqual(2, remaining.Length)
         Assert.AreEqual("F20261020143512CCCC", remaining(0).Entry.LocalRef)
         Assert.AreEqual("F20261020143512DDDD", remaining(1).Entry.LocalRef, "a line appended after ReadAll is kept")
-        Dim rejected As String() = File.ReadAllLines(RejectedFile)
+        Dim rejected As String() = File.ReadAllLines(_rejectedFile)
         Assert.AreEqual(1, rejected.Length)
         StringAssert.Contains(rejected(0), lines(1).Raw)
         StringAssert.Matches(rejected(0), New Text.RegularExpressions.Regex("^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2} "))
@@ -134,14 +111,14 @@ Public Class FilePendingQueueTests
         _queue.Remove({_queue.ReadAll()(0)}, New PendingLine() {})
 
         Assert.AreEqual(1, _queue.ReadAll().Length)
-        Assert.IsFalse(File.Exists(RejectedFile), "no rejected lines, no rejected file")
+        Assert.IsFalse(File.Exists(_rejectedFile), "no rejected lines, no rejected file")
     End Sub
 
     <TestMethod>
     Public Sub Append_WhileFileHeldExclusively_ThrowsAfterRetries()
         Directory.CreateDirectory(_folder)
         Dim watch As Stopwatch = Nothing
-        Using held As New FileStream(PendingFile, FileMode.OpenOrCreate, FileAccess.ReadWrite, FileShare.None)
+        Using held As New FileStream(_pendingFile, FileMode.OpenOrCreate, FileAccess.ReadWrite, FileShare.None)
             watch = Stopwatch.StartNew()
             Dim caught As Exception = Nothing
             Try

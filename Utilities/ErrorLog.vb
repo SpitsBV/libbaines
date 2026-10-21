@@ -253,9 +253,7 @@ Public NotInheritable Class ErrorLog
 
             Dim processed As New List(Of PendingLine)
             Dim rejected As New List(Of PendingLine)
-            Dim lines As PendingLine() = queue.ReadAll()
-            For i As Integer = 0 To lines.Length - 1
-                Dim line As PendingLine = lines(i)
+            For Each line As PendingLine In queue.ReadAll()
                 If line.Entry Is Nothing Then
                     rejected.Add(line)
                     Continue For
@@ -270,15 +268,8 @@ Public NotInheritable Class ErrorLog
                         ' Database unreachable, or its p_insert_error_log is older than this client
                         ' (GUI released before the uo-sql publish): keep this line and the rest for
                         ' the next replay.
-                        Dim kept As Integer = 0
-                        For k As Integer = i To lines.Length - 1
-                            If lines(k).Entry IsNot Nothing AndAlso IsTarget(lines(k), server, database) Then kept += 1
-                        Next
-                        WriteReplayFailure(fallback, String.Format(CultureInfo.InvariantCulture,
-                            "Replay stopped at local code {0}, {1}, {2} lines kept",
-                            line.Entry.LocalRef,
-                            If(IsConnectionError(sqlEx), "database unreachable", "p_insert_error_log cannot take it yet"),
-                            kept), writeEx)
+                        WriteReplayFailure(fallback, "Replay stopped at local code " & line.Entry.LocalRef & ", " &
+                            If(IsConnectionError(sqlEx), "database unreachable", "p_insert_error_log cannot take it yet"), writeEx)
                         Exit For
                     End If
                     rejected.Add(line)

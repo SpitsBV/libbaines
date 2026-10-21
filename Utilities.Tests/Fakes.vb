@@ -19,9 +19,6 @@ Friend NotInheritable Class FakeWriter
     ''' <summary>When set, Write throws this instead of returning a result (the call is still recorded).</summary>
     Friend Property ThrowOnWrite As Exception
 
-    ''' <summary>When set and it returns an exception for the entry, Write throws that (the call is still recorded).</summary>
-    Friend Property ThrowOnWriteFor As Func(Of ErrorLogEntry, Exception)
-
     ''' <summary>When set, runs inside Write before the result is returned (re-entrancy tests).</summary>
     Friend Property OnWrite As Action(Of ErrorLogEntry)
 
@@ -46,11 +43,6 @@ Friend NotInheritable Class FakeWriter
         If hook IsNot Nothing Then hook(entry)
         Dim toThrow As Exception = ThrowOnWrite
         If toThrow IsNot Nothing Then Throw toThrow
-        Dim throwFor As Func(Of ErrorLogEntry, Exception) = ThrowOnWriteFor
-        If throwFor IsNot Nothing Then
-            Dim forEntry As Exception = throwFor(entry)
-            If forEntry IsNot Nothing Then Throw forEntry
-        End If
         If Sequential Then
             Return New ErrorLogResult(Interlocked.Increment(_nextId), ResultText)
         End If
@@ -118,7 +110,6 @@ Friend NotInheritable Class FakePendingQueue
 
     Private ReadOnly _sync As New Object()
     Private ReadOnly _lines As New List(Of PendingLine)
-    Private ReadOnly _rejected As New List(Of PendingLine)
     Private ReadOnly _removeCalls As New List(Of Tuple(Of PendingLine(), PendingLine()))
     Private _nextLine As Integer
 
@@ -130,14 +121,6 @@ Friend NotInheritable Class FakePendingQueue
         Get
             SyncLock _sync
                 Return _lines.Select(Function(l) l.Entry).ToArray()
-            End SyncLock
-        End Get
-    End Property
-
-    Friend ReadOnly Property Rejected As PendingLine()
-        Get
-            SyncLock _sync
-                Return _rejected.ToArray()
             End SyncLock
         End Get
     End Property
@@ -177,7 +160,6 @@ Friend NotInheritable Class FakePendingQueue
     Public Sub Remove(processed As PendingLine(), rejected As PendingLine()) Implements IPendingQueue.Remove
         SyncLock _sync
             _removeCalls.Add(Tuple.Create(processed, rejected))
-            _rejected.AddRange(rejected)
             For Each line As PendingLine In processed.Concat(rejected)
                 Dim index As Integer = _lines.FindIndex(Function(l) l.Raw = line.Raw)
                 If index >= 0 Then _lines.RemoveAt(index)

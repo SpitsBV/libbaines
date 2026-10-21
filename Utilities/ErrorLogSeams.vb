@@ -239,18 +239,10 @@ Friend NotInheritable Class FilePendingQueue
     Public Function ReadAll() As PendingLine() Implements IPendingQueue.ReadAll
         If Not IO.File.Exists(_file) Then Return New PendingLine() {}
         Dim serializer As JavaScriptSerializer = NewSerializer()
-        Dim lines As New List(Of PendingLine)
         Using stream As FileStream = OpenExclusive(_file, FileMode.Open, FileAccess.Read),
               reader As New StreamReader(stream)
-            Dim raw As String = reader.ReadLine()
-            While raw IsNot Nothing
-                If raw.Trim().Length > 0 Then
-                    lines.Add(New PendingLine With {.Raw = raw, .Entry = Parse(serializer, raw)})
-                End If
-                raw = reader.ReadLine()
-            End While
+            Return ReadNonBlankLines(reader).Select(Function(raw) New PendingLine With {.Raw = raw, .Entry = Parse(serializer, raw)}).ToArray()
         End Using
-        Return lines.ToArray()
     End Function
 
     Public Sub Remove(processed As PendingLine(), rejected As PendingLine()) Implements IPendingQueue.Remove
@@ -267,13 +259,9 @@ Friend NotInheritable Class FilePendingQueue
                 End Using
             End If
 
-            Dim remaining As New List(Of String)
+            Dim remaining As List(Of String)
             Using reader As New StreamReader(stream, New Text.UTF8Encoding(False), True, 4096, True)
-                Dim raw As String = reader.ReadLine()
-                While raw IsNot Nothing
-                    If raw.Trim().Length > 0 Then remaining.Add(raw)
-                    raw = reader.ReadLine()
-                End While
+                remaining = ReadNonBlankLines(reader)
             End Using
             ' Multiset match: each processed or rejected line removes one occurrence.
             For Each line As PendingLine In processed.Concat(rejected)
@@ -294,11 +282,20 @@ Friend NotInheritable Class FilePendingQueue
         Return New JavaScriptSerializer() With {.MaxJsonLength = Integer.MaxValue}
     End Function
 
+    Private Shared Function ReadNonBlankLines(reader As StreamReader) As List(Of String)
+        Dim lines As New List(Of String)
+        Dim raw As String = reader.ReadLine()
+        While raw IsNot Nothing
+            If Not String.IsNullOrWhiteSpace(raw) Then lines.Add(raw)
+            raw = reader.ReadLine()
+        End While
+        Return lines
+    End Function
+
     Private Shared Function Parse(serializer As JavaScriptSerializer, raw As String) As ErrorLogEntry
         Try
-            Dim entry As ErrorLogEntry = serializer.Deserialize(Of ErrorLogEntry)(raw)
             ' JavaScriptSerializer reads DateTime back as DateTimeKind.Utc, which is what CreatedUtc is.
-            Return entry
+            Return serializer.Deserialize(Of ErrorLogEntry)(raw)
         Catch ex As Exception
             ' ErrorLog: bewust genegeerd, a corrupt line is returned with Entry = Nothing for the caller to reject.
             Return Nothing

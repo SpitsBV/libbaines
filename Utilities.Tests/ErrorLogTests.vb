@@ -952,14 +952,6 @@ Public Class ErrorLogTests
     End Sub
 
     <TestMethod>
-    Public Sub NewLocalRef_HasFormat()
-        Dim code As String = ErrorLog.NewLocalRef()
-
-        Assert.AreEqual(19, code.Length)
-        StringAssert.Matches(code, New Regex(LocalRefPattern))
-    End Sub
-
-    <TestMethod>
     Public Sub NewLocalRef_InvariantDigitsUnderThaiCulture()
         Dim previous As CultureInfo = Thread.CurrentThread.CurrentCulture
         Try
@@ -968,17 +960,6 @@ Public Class ErrorLogTests
         Finally
             Thread.CurrentThread.CurrentCulture = previous
         End Try
-    End Sub
-
-    <TestMethod>
-    Public Sub LocalCodeText_DefaultSettableAndRestoredByReset()
-        Assert.AreEqual(ErrorLog.DefaultLocalCodeText, ErrorLog.LocalCodeText)
-        Assert.AreEqual("Error code: {0} (saved on this computer). Pass this code on to the administrator.",
-                        ErrorLog.DefaultLocalCodeText)
-        ErrorLog.LocalCodeText = "code {0}"
-        Assert.AreEqual("code {0}", ErrorLog.LocalCodeText)
-        ErrorLog.Reset()
-        Assert.AreEqual(ErrorLog.DefaultLocalCodeText, ErrorLog.LocalCodeText)
     End Sub
 
     ' ------------------------------------------------------------------
@@ -1005,13 +986,18 @@ Public Class ErrorLogTests
         ErrorLog.Reset()
         Dim defaultConnection As String = ErrorLog.ConnectionFailedText
         Dim defaultLog As String = ErrorLog.LogFailedText
+        Assert.AreEqual("Error code: {0} (saved on this computer). Pass this code on to the administrator.",
+                        ErrorLog.LocalCodeText)
 
         ErrorLog.ConnectionFailedText = "conn"
         ErrorLog.LogFailedText = "log"
+        ErrorLog.LocalCodeText = "code {0}"
+        Assert.AreEqual("code {0}", ErrorLog.LocalCodeText)
         ErrorLog.Reset()
 
         Assert.AreEqual(defaultConnection, ErrorLog.ConnectionFailedText)
         Assert.AreEqual(defaultLog, ErrorLog.LogFailedText)
+        Assert.AreEqual(ErrorLog.DefaultLocalCodeText, ErrorLog.LocalCodeText)
     End Sub
 
 End Class

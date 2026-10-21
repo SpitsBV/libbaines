@@ -23,6 +23,7 @@ Public Class ErrorLogReplayTests
 
     <TestCleanup>
     Public Sub Cleanup()
+        Assert.AreEqual(0, _presenter.CallCount, "replay must never show")
         ErrorLog.Reset()
     End Sub
 
@@ -51,7 +52,9 @@ Public Class ErrorLogReplayTests
     End Function
 
     Private Sub ThrowForFirst(ex As Exception)
-        _writer.ThrowOnWriteFor = Function(e) If(e.LocalRef = "F1", ex, Nothing)
+        _writer.OnWrite = Sub(e)
+                              If e.LocalRef = "F1" Then Throw ex
+                          End Sub
     End Sub
 
     <TestMethod>
@@ -99,37 +102,29 @@ Public Class ErrorLogReplayTests
         Assert.AreEqual("F0", _queue.Entries.Single().LocalRef)
     End Sub
 
+    ' 8144 (too many arguments) and 2812 (no such proc): the database still runs an older
+    ' p_insert_error_log. The line must wait for the uo-sql publish, not be rejected.
     <TestMethod>
-    Public Sub Replay_ConnectionError_StopsAndKeepsRest()
-        ConfigureLogging()
-        AddLine("F1")
-        AddLine("F2")
-        ThrowForFirst(SqlExceptionFactory.Create(53))
+    Public Sub Replay_ConnectionOrProcError_StopsAndKeepsRest()
+        For Each c As Tuple(Of Integer, String) In {
+                Tuple.Create(53, "database unreachable"),
+                Tuple.Create(8144, "p_insert_error_log cannot take it yet"),
+                Tuple.Create(2812, "p_insert_error_log cannot take it yet")}
+            Rewire()
+            ConfigureLogging()
+            AddLine("F1")
+            AddLine("F2")
+            ThrowForFirst(SqlExceptionFactory.Create(c.Item1))
 
-        ErrorLog.ReplayPending()
+            ErrorLog.ReplayPending()
 
-        Assert.AreEqual(1, _writer.CallCount)
-        Assert.AreEqual(0, _queue.RemoveCalls.Length)
-        Assert.AreEqual(2, _queue.Entries.Length)
-        ' Debug is compiled out of Release: the stop must be in the fallback file.
-        Assert.AreEqual(1, _fallback.Written.Count(Function(w) w.Contains("Replay stopped at local code F1, database unreachable, 2 lines kept")))
-    End Sub
-
-    ' 8144 (too many arguments): the database still runs the proc without @created_utc. The line
-    ' must wait for the uo-sql publish, not be rejected.
-    <TestMethod>
-    Public Sub Replay_ProcTooManyArguments_StopsAndKeepsRest()
-        ConfigureLogging()
-        AddLine("F1")
-        AddLine("F2")
-        ThrowForFirst(SqlExceptionFactory.Create(8144))
-
-        ErrorLog.ReplayPending()
-
-        Assert.AreEqual(1, _writer.CallCount)
-        Assert.AreEqual(0, _queue.RemoveCalls.Length)
-        Assert.AreEqual(2, _queue.Entries.Length)
-        Assert.AreEqual(1, _fallback.Written.Count(Function(w) w.Contains("Replay stopped at local code F1, p_insert_error_log cannot take it yet, 2 lines kept")))
+            Dim label As String = c.Item1.ToString()
+            Assert.AreEqual(1, _writer.CallCount, label)
+            Assert.AreEqual(0, _queue.RemoveCalls.Length, label)
+            Assert.AreEqual(2, _queue.Entries.Length, label)
+            ' Debug is compiled out of Release: the stop must be in the fallback file.
+            Assert.AreEqual(1, _fallback.Written.Count(Function(w) w.Contains("Replay stopped at local code F1, " & c.Item2)), label)
+        Next
     End Sub
 
     <TestMethod>
@@ -147,7 +142,7 @@ Public Class ErrorLogReplayTests
         CollectionAssert.AreEqual({l0}, _queue.RemoveCalls(0).Item1)
         Assert.AreEqual(0, _queue.RemoveCalls(0).Item2.Length)
         Assert.AreEqual(2, _queue.Entries.Length)
-        Assert.AreEqual(1, _fallback.Written.Count(Function(w) w.Contains("database unreachable, 2 lines kept")))
+        Assert.AreEqual(1, _fallback.Written.Count(Function(w) w.Contains("database unreachable")))
     End Sub
 
     <TestMethod>
@@ -194,31 +189,6 @@ Public Class ErrorLogReplayTests
         Assert.AreEqual(1, _writer.CallCount)
         CollectionAssert.AreEqual({good}, _queue.RemoveCalls.Single().Item1)
         CollectionAssert.AreEqual({corrupt}, _queue.RemoveCalls.Single().Item2)
-    End Sub
-
-    <TestMethod>
-    Public Sub Replay_NeverShowsAnything()
-        Dim scenarios As New List(Of Action) From {
-            Sub() AddLine("F1"),
-            Sub() AddLine("F1", "prod", "UPLUS2"),
-            Sub()
-                AddLine("F1")
-                ThrowForFirst(SqlExceptionFactory.Create(53))
-            End Sub,
-            Sub()
-                AddLine("F1")
-                ThrowForFirst(SqlExceptionFactory.Create(50000))
-            End Sub,
-            Sub() _queue.AddLine(New PendingLine With {.Raw = "{not json"})}
-        For i As Integer = 0 To scenarios.Count - 1
-            Rewire()
-            ConfigureLogging()
-            scenarios(i)()
-
-            ErrorLog.ReplayPending()
-
-            Assert.AreEqual(0, _presenter.CallCount, "scenario " & i.ToString())
-        Next
     End Sub
 
     <TestMethod>
