@@ -114,7 +114,11 @@ Public Class Utilities
             Try
                 ShowAForm(pParent, frm, strHeader, strFormName, frmState)
             Catch ex As Exception
-                MsgBox(ex.Message)
+                If ErrorLog.IsEnabled Then
+                    ErrorLog.Report(ex, "Scherm openen: " & strFormName)
+                Else
+                    MsgBox(ex.Message)
+                End If
             End Try
 
         End If
@@ -469,7 +473,11 @@ Public Class Utilities
                 bs.Filter = strF
             End If
         Catch ex As Exception
-            MsgBox(ex.Message, MsgBoxStyle.OkOnly)
+            If ErrorLog.IsEnabled Then
+                ErrorLog.Report(ex, "Utilities.MakeFilterFromButton")
+            Else
+                MsgBox(ex.Message, MsgBoxStyle.OkOnly)
+            End If
         End Try
     End Sub
     Public Function GetBoundColumnName(ByVal dgColumnName As String, ByVal dg As DataGridView) As String
@@ -549,7 +557,11 @@ Public Class Utilities
                 bs.Filter = strF
             End If
         Catch ex As Exception
-            MsgBox(ex.Message, MsgBoxStyle.OkOnly)
+            If ErrorLog.IsEnabled Then
+                ErrorLog.Report(ex, "Utilities.MakeFilter")
+            Else
+                MsgBox(ex.Message, MsgBoxStyle.OkOnly)
+            End If
         End Try
 
     End Sub
@@ -596,7 +608,11 @@ Public Class Utilities
                 bs.Filter = strF
             End If
         Catch ex As Exception
-            MsgBox(ex.Message, MsgBoxStyle.OkOnly)
+            If ErrorLog.IsEnabled Then
+                ErrorLog.Report(ex, "Utilities.MakeFilter")
+            Else
+                MsgBox(ex.Message, MsgBoxStyle.OkOnly)
+            End If
         End Try
 
     End Sub

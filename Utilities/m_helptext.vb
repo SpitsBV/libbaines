@@ -54,7 +54,11 @@ Public Class m_helptext
             tadap.Delete(e.Row.Cells(dg.Columns("form").Index).Value.ToString())
             MyBase.dg_UserDeletingRow(sender, e)
         Catch ex As Exception
-            MsgBox("Delete failed. Most common cause is that record is in use in another table." + ex.Message)
+            If ErrorLog.IsEnabled Then
+                ErrorLog.Report(ex, "m_helptext.dg_UserDeletingRow", hint:="Delete failed. Most common cause is that record is in use in another table.")
+            Else
+                MsgBox("Delete failed. Most common cause is that record is in use in another table." + ex.Message)
+            End If
             e.Cancel = True
         End Try
     End Sub

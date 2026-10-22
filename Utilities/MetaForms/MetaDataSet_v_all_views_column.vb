@@ -47,7 +47,11 @@ Public Class MetaData_v_all_views_column
             AdjustDataGridWidth(blnAdjustWidth)
             RefreshCombos()
         Catch ex As Exception
-            MsgBox(ex.Message)
+            If ErrorLog.IsEnabled Then
+                ErrorLog.Report(ex, "MetaData_v_all_views_column.Adjustcolumns")
+            Else
+                MsgBox(ex.Message)
+            End If
         End Try
     End Sub
     Public Overrides Sub RefreshCombos()

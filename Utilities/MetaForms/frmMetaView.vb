@@ -66,7 +66,11 @@ MainDefs, True, Controls, Me, True)
             FillTableAdapter()
 
         Catch ex As Exception
-            MsgBox(ex.Message)
+            If ErrorLog.IsEnabled Then
+                ErrorLog.Report(ex, "frmMetaView.frmLoad")
+            Else
+                MsgBox(ex.Message)
+            End If
         End Try
     End Sub
 
@@ -80,7 +84,11 @@ MainDefs, True, Controls, Me, True)
                 blnAllowUpdate = True
             End If
         Catch ex As Exception
-            MsgBox(ex.Message)
+            If ErrorLog.IsEnabled Then
+                ErrorLog.Report(ex, "frmMetaView.FillTableAdapter")
+            Else
+                MsgBox(ex.Message)
+            End If
         Finally
             Me.Cursor = Cursors.Default
         End Try
@@ -93,16 +101,28 @@ MainDefs, True, Controls, Me, True)
                 Try
                     Dm_sql_referenced_entitiesTableAdapter.Fill(Me.MetaData.dm_sql_referenced_entities, dgParent.Rows(e.RowIndex).Cells("TABLE_SCHEMA").Value + "." + dgParent.Rows(e.RowIndex).Cells("TABLE_NAME").Value)
                 Catch ex As Exception
-                    MsgBox("CHECK A referenced entity does not exist and View is invalid. " + ex.Message)
+                    If ErrorLog.IsEnabled Then
+                        ErrorLog.Report(ex, "frmMetaView.dgParent_RowEnter", hint:="CHECK A referenced entity does not exist and View is invalid.")
+                    Else
+                        MsgBox("CHECK A referenced entity does not exist and View is invalid. " + ex.Message)
+                    End If
                 End Try
                 Try
                     Dm_sql_referencing_entitiesTableAdapter.Fill(Me.MetaData.dm_sql_referencing_entities, dgParent.Rows(e.RowIndex).Cells("TABLE_SCHEMA").Value + "." + dgParent.Rows(e.RowIndex).Cells("TABLE_NAME").Value)
                 Catch ex As Exception
-                    MsgBox(ex.Message)
+                    If ErrorLog.IsEnabled Then
+                        ErrorLog.Report(ex, "frmMetaView.dgParent_RowEnter")
+                    Else
+                        MsgBox(ex.Message)
+                    End If
                 End Try
             End If
         Catch ex As Exception
-            MsgBox(ex.Message)
+            If ErrorLog.IsEnabled Then
+                ErrorLog.Report(ex, "frmMetaView.dgParent_RowEnter")
+            Else
+                MsgBox(ex.Message)
+            End If
         End Try
     End Sub
 
