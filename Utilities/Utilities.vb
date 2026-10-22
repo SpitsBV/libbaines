@@ -720,7 +720,11 @@ Public Class Utilities
         Catch ex As Exception
             'RPB Jan 2008 Gives a problem when using proposed data on a ComboBox input field.
             'If ex.Message.IndexOf("no Proposed data") = 0 Then
-            MsgBox("EXCEPTION: " & ex.Message & " ")
+            If ErrorLog.IsEnabled Then
+                ErrorLog.Report(ex, "Utilities.Handle_DataGridView_RowValidating")
+            Else
+                MsgBox("EXCEPTION: " & ex.Message & " ")
+            End If
             e.Cancel = True
             'Else
             'dg.CurrentRow.ErrorText = ""
@@ -738,7 +742,11 @@ Public Class Utilities
             Debug.Print(EventName & " " & e.Row.Cells(0).Value)
             CallByName(TableAdapter, "Delete", CallType.Method, e.Row.Cells(0).Value)
         Catch ex As Exception
-            MsgBox("EXCEPTION: " & ex.Message & " ")
+            If ErrorLog.IsEnabled Then
+                ErrorLog.Report(ex, "Utilities.Handle_DataGridView_UserDeletingRow")
+            Else
+                MsgBox("EXCEPTION: " & ex.Message & " ")
+            End If
             e.Cancel = True
         End Try
     End Sub
@@ -750,7 +758,11 @@ Public Class Utilities
             Debug.Print(EventName & " " & e.Row.Cells(0).Value)
             CallByName(TableAdapter, "Delete", CallType.Method, e.Row.Cells(0).Value, e.Row.Cells(1).Value)
         Catch ex As Exception
-            MsgBox("EXCEPTION: " & ex.Message & " ")
+            If ErrorLog.IsEnabled Then
+                ErrorLog.Report(ex, "Utilities.Handle_DataGridView_UserDeletingRow2")
+            Else
+                MsgBox("EXCEPTION: " & ex.Message & " ")
+            End If
             e.Cancel = True
         End Try
     End Sub
@@ -762,7 +774,11 @@ Public Class Utilities
             Debug.Print(EventName & " " & e.Row.Cells(0).Value)
             CallByName(TableAdapter, "Delete", CallType.Method, e.Row.Cells(0).Value, e.Row.Cells(1).Value, e.Row.Cells(2).Value)
         Catch ex As Exception
-            MsgBox("EXCEPTION: " & ex.Message & " ")
+            If ErrorLog.IsEnabled Then
+                ErrorLog.Report(ex, "Utilities.Handle_DataGridView_UserDeletingRow3")
+            Else
+                MsgBox("EXCEPTION: " & ex.Message & " ")
+            End If
             e.Cancel = True
         End Try
     End Sub

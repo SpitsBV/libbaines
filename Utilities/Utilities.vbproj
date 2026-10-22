@@ -97,6 +97,8 @@
       <SubType>Component</SubType>
     </Compile>
     <Compile Include="dgColumns.vb" />
+    <Compile Include="ErrorLog.vb" />
+    <Compile Include="ErrorLogSeams.vb" />
     <Compile Include="dgvEnter.vb">
       <SubType>Component</SubType>
     </Compile>
