@@ -2,16 +2,28 @@ Option Strict On
 Option Explicit On
 
 Imports System.Data.SqlClient
+Imports System.Text.RegularExpressions
 Imports System.Threading.Tasks
 Imports Microsoft.VisualStudio.TestTools.UnitTesting
 
-' CH-227 - Report(..., hint) and ReportText(...). Text rule with a non-empty hint:
-' hint & vbCrLf & vbCrLf & <text without hint>.
+' CH-227/CH-238 - Report(..., hint) and ReportText(...). Text rule with a non-empty hint:
+' hint & vbCrLf & vbCrLf & <text without hint>. The local code in a writer failure text differs per
+' call, so texts are compared through Norm, which replaces it with LocalRefPlaceholder.
 <TestClass>
 Public Class ErrorLogHintTests
 
     Private Const ConnectionString As String = "Data Source=.;Initial Catalog=x;Integrated Security=True"
     Private Const Hint As String = "A problem occurred in file with id 5."
+    Private Const LocalRefPlaceholder As String = "F<code>"
+
+    Private Shared Function Norm(text As String) As String
+        If text Is Nothing Then Return Nothing
+        Return Regex.Replace(text, "F\d{14}[0-9A-F]{4}", LocalRefPlaceholder)
+    End Function
+
+    Private Shared Function WithLocalCode(failureText As String) As String
+        Return failureText & vbCrLf & vbCrLf & String.Format(ErrorLog.LocalCodeText, LocalRefPlaceholder)
+    End Function
 
     Private Enum Row
         NotConfiguredSql
@@ -29,9 +41,10 @@ Public Class ErrorLogHintTests
         Friend ReadOnly Writer As New FakeWriter()
         Friend ReadOnly Presenter As New FakePresenter()
         Friend ReadOnly Fallback As New FakeFallback()
+        Friend ReadOnly Queue As New FakePendingQueue()
         Friend ReadOnly Row As Row
         Friend ReadOnly Ex As Exception
-        ''' <summary>Text shown without a hint.</summary>
+        ''' <summary>Text shown without a hint, local code normalized (see Norm).</summary>
         Friend ReadOnly BaseText As String
         Friend ReadOnly ExpectedReturn As Integer?
         Friend ReadOnly ExpectsFallback As Boolean
@@ -40,7 +53,7 @@ Public Class ErrorLogHintTests
         Friend Sub New(r As Row, Optional exOverride As Exception = Nothing)
             Row = r
             ErrorLog.Reset()
-            ErrorLog.SetSeams(Writer, Presenter, Fallback)
+            ErrorLog.SetSeams(Writer, Presenter, Fallback, Queue)
             Writer.ResultId = 42
             Writer.ResultText = "T"
             Select Case r
@@ -53,7 +66,9 @@ Public Class ErrorLogHintTests
                 Case Row.ConfiguredPlain
                     ErrorLog.Configure(ConnectionString, "UPLUS", "1.2.3")
                     Ex = If(exOverride, New InvalidOperationException("configured plain message"))
-                    BaseText = Ex.Message
+                    BaseText = "T" & vbCrLf & vbCrLf & "Error code: 42. Pass this code on to the administrator."
+                    ExpectedReturn = 42
+                    ExpectsWrite = True
                 Case Row.ConfiguredSqlWriteOk
                     ErrorLog.Configure(ConnectionString, "UPLUS", "1.2.3")
                     Ex = If(exOverride, SqlExceptionFactory.Create(547, message:="fk message"))
@@ -62,16 +77,16 @@ Public Class ErrorLogHintTests
                     ExpectsWrite = True
                 Case Row.WriterThrowsConnection53
                     ErrorLog.Configure(ConnectionString, "UPLUS", "1.2.3")
-                    Writer.ThrowOnWrite = New InvalidOperationException("writer exploded")
+                    Writer.ThrowOnWrite = SqlExceptionFactory.Create(53)
                     Ex = If(exOverride, SqlExceptionFactory.Create(53, message:="network path"))
-                    BaseText = ErrorLog.ConnectionFailedText
+                    BaseText = WithLocalCode(ErrorLog.ConnectionFailedText)
                     ExpectsWrite = True
                     ExpectsFallback = True
                 Case Row.WriterThrowsOther547
                     ErrorLog.Configure(ConnectionString, "UPLUS", "1.2.3")
                     Writer.ThrowOnWrite = New InvalidOperationException("writer exploded")
                     Ex = If(exOverride, SqlExceptionFactory.Create(547, message:="fk message"))
-                    BaseText = ErrorLog.LogFailedText
+                    BaseText = WithLocalCode(ErrorLog.LogFailedText)
                     ExpectsWrite = True
                     ExpectsFallback = True
             End Select
@@ -117,7 +132,7 @@ Public Class ErrorLogHintTests
             Dim result As Integer? = ErrorLog.Report(s.Ex, "ctx", hint:=Hint)
 
             Assert.AreEqual(1, s.Presenter.CallCount, r.ToString())
-            Assert.AreEqual(Hint & vbCrLf & vbCrLf & s.BaseText, s.Presenter.Shown(0), r.ToString())
+            Assert.AreEqual(Hint & vbCrLf & vbCrLf & s.BaseText, Norm(s.Presenter.Shown(0)), r.ToString())
             Assert.AreEqual(s.ExpectedReturn, result, r.ToString() & " return value")
         Next
     End Sub
@@ -161,21 +176,37 @@ Public Class ErrorLogHintTests
         Next
     End Sub
 
+    ' CH-238 reverses CH-227 here on purpose: the hint is stored as the reason of the log row.
     <TestMethod>
-    Public Sub Report_WithHint_HintIsNeverLogged()
+    Public Sub Report_WithHint_HintIsLoggedAsReason()
         For Each r As Row In AllRows
             Dim s As New Scenario(r)
 
             ErrorLog.Report(s.Ex, "ctx", hint:=Hint)
 
+            Assert.AreEqual(If(s.ExpectsWrite, 1, 0), s.Writer.CallCount, r.ToString())
             For Each e As ErrorLogEntry In s.Writer.Entries
                 Assert.AreEqual("ctx", e.Context, r.ToString())
+                Assert.AreEqual(Hint, e.Reason, r.ToString() & " Reason")
                 Assert.IsFalse(e.Message.Contains(Hint), r.ToString() & " Message")
                 Assert.IsFalse(If(e.Trace, "").Contains(Hint), r.ToString() & " Trace")
             Next
-            For Each t As String In s.Fallback.Written
-                Assert.IsFalse(t.Contains(Hint), r.ToString() & " fallback")
-            Next
+        Next
+    End Sub
+
+    ' The admin reading the fallback file sees the local code and the hint (reason).
+    <TestMethod>
+    Public Sub Report_WithHint_WriterThrows_FallbackContainsReasonAndLocalCode()
+        For Each r As Row In New Row() {Row.WriterThrowsConnection53, Row.WriterThrowsOther547}
+            Dim s As New Scenario(r)
+
+            ErrorLog.Report(s.Ex, "ctx", hint:=Hint)
+
+            Assert.AreEqual(1, s.Fallback.CallCount, r.ToString())
+            Assert.AreEqual(1, s.Queue.Entries.Length, r.ToString())
+            Assert.AreEqual(Hint, s.Queue.Entries(0).Reason, r.ToString())
+            StringAssert.Contains(s.Fallback.Written(0), s.Queue.Entries(0).LocalRef, r.ToString())
+            StringAssert.Contains(s.Fallback.Written(0), Hint, r.ToString())
         Next
     End Sub
 
@@ -209,7 +240,7 @@ Public Class ErrorLogHintTests
             Dim result As Integer? = ErrorLog.Report(s.Ex, "ctx", hint:="")
 
             Assert.AreEqual(1, s.Presenter.CallCount, r.ToString())
-            Assert.AreEqual(s.BaseText, s.Presenter.Shown(0), r.ToString())
+            Assert.AreEqual(s.BaseText, Norm(s.Presenter.Shown(0)), r.ToString())
             Assert.AreEqual(s.ExpectedReturn, result, r.ToString())
         Next
     End Sub
@@ -221,7 +252,7 @@ Public Class ErrorLogHintTests
 
             ErrorLog.Report(s.Ex, "ctx", hint:=Nothing)
 
-            Assert.AreEqual(s.BaseText, s.Presenter.Shown(0), r.ToString())
+            Assert.AreEqual(s.BaseText, Norm(s.Presenter.Shown(0)), r.ToString())
         Next
     End Sub
 
@@ -240,8 +271,8 @@ Public Class ErrorLogHintTests
                 Dim text As String = ErrorLog.ReportText(viaText.Ex, "ctx", h)
 
                 Dim label As String = r.ToString() & " hint=" & If(h, "<Nothing>")
-                Assert.AreEqual(viaReport.Presenter.Shown(0), text, label)
-                Assert.AreEqual(viaText.Expected(h), text, label)
+                Assert.AreEqual(Norm(viaReport.Presenter.Shown(0)), Norm(text), label)
+                Assert.AreEqual(viaText.Expected(h), Norm(text), label)
             Next
         Next
     End Sub
@@ -272,7 +303,7 @@ Public Class ErrorLogHintTests
 
             Dim text As String = ErrorLog.ReportText(s.Ex, "ctx")
 
-            Assert.AreEqual(s.BaseText, text, r.ToString())
+            Assert.AreEqual(s.BaseText, Norm(text), r.ToString())
             Assert.AreEqual(0, s.Presenter.CallCount, r.ToString())
         Next
     End Sub
@@ -297,10 +328,10 @@ Public Class ErrorLogHintTests
         For Each number As Integer In New Integer() {53, 547}
             For Each h As String In New String() {Nothing, Hint}
                 Dim s As New Scenario(Row.ConfiguredSqlWriteOk, SqlExceptionFactory.Create(number))
-                s.Writer.ThrowOnWrite = New InvalidOperationException("writer boom")
+                s.Writer.ThrowOnWrite = SqlExceptionFactory.Create(number)
                 s.Presenter.ThrowOnShow = New InvalidOperationException("presenter boom")
                 s.Fallback.ThrowOnWrite = New InvalidOperationException("fallback boom")
-                Dim failure As String = If(number = 53, ErrorLog.ConnectionFailedText, ErrorLog.LogFailedText)
+                Dim failure As String = WithLocalCode(If(number = 53, ErrorLog.ConnectionFailedText, ErrorLog.LogFailedText))
                 Dim expected As String = If(String.IsNullOrEmpty(h), failure, h & vbCrLf & vbCrLf & failure)
 
                 Dim text As String = Nothing
@@ -311,7 +342,7 @@ Public Class ErrorLogHintTests
                 End Try
 
                 Assert.IsFalse(String.IsNullOrEmpty(text), "number " & number.ToString())
-                Assert.AreEqual(expected, text, "number " & number.ToString())
+                Assert.AreEqual(expected, Norm(text), "number " & number.ToString())
             Next
         Next
     End Sub

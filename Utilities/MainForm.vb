@@ -137,8 +137,11 @@ Public Class MainForm
 ByVal e As UnhandledExceptionEventArgs)
         Dim EX As Exception
         EX = e.ExceptionObject
-        If ErrorLog.IsEnabled AndAlso ErrorLog.FindSqlException(EX) IsNot Nothing Then
-            ErrorLog.Report(EX, "Onafgevangen fout (achtergrond)", showMessage:=False)
+        If ErrorLog.IsEnabled Then
+            ' This handler can run on a background thread and the process ends when it returns, so a
+            ' box posted to the UI thread would never show: log, then show the text here and now.
+            Dim t As String = ErrorLog.ReportText(EX, "Onafgevangen fout (achtergrond)")
+            If t IsNot Nothing Then MessageBoxPresenter.ShowBox(t)
         Else
             MsgBox(EX.StackTrace)
         End If
@@ -555,7 +558,11 @@ ByVal e As UnhandledExceptionEventArgs)
                 MsgBox(statics.get_txt_header("UserBlocked"))
             End If
         Catch ex As Exception
-            MsgBox("problem " + ex.Message)
+            If ErrorLog.IsEnabled Then
+                ErrorLog.Report(ex, "MainForm.CheckFormVisibility")
+            Else
+                MsgBox("problem " + ex.Message)
+            End If
         End Try
     End Sub
 #End Region
@@ -649,7 +656,11 @@ ByVal e As UnhandledExceptionEventArgs)
                 Me.tslTimeToGo.Text = ""    'GetConnectionString()
 
             Catch ex As Exception
-                MsgBox("Switch off Restart controls. " & ex.Message)
+                If ErrorLog.IsEnabled Then
+                    ErrorLog.Report(ex, "MainForm.Init")
+                Else
+                    MsgBox("Switch off Restart controls. " & ex.Message)
+                End If
             End Try
 
             Try
@@ -1099,7 +1110,11 @@ ByVal e As UnhandledExceptionEventArgs)
             Try
                 ShowAForm(pParent, frm, strHeader, strFormName, frmState)
             Catch ex As Exception
-                MsgBox(ex.Message)
+                If ErrorLog.IsEnabled Then
+                    ErrorLog.Report(ex, "Scherm openen: " & strFormName)
+                Else
+                    MsgBox(ex.Message)
+                End If
             End Try
 
         End If

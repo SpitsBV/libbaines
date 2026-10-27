@@ -302,7 +302,11 @@ Namespace statics
             Try
                 SetConnectionStrings()
             Catch ex As Exception
-                MsgBox("SetConnectionStrings " & ex.Message)
+                If ErrorLog.IsEnabled Then
+                    ErrorLog.Report(ex, "ModuleStatics.InitConnection")
+                Else
+                    MsgBox("SetConnectionStrings " & ex.Message)
+                End If
             End Try
 
             Dim iOptions As Integer
@@ -361,7 +365,11 @@ Namespace statics
                 _blnSupportsAppLog = True
             Catch ex As Exception
                 _blnSupportsAppLog = False
-                MsgBox(" m_app_log table has NOT been defined on the database " & ex.Message)
+                If ErrorLog.IsEnabled Then
+                    ErrorLog.Report(ex, "ModuleStatics.InitConnection")
+                Else
+                    MsgBox(" m_app_log table has NOT been defined on the database " & ex.Message)
+                End If
             End Try
         End Sub
 
@@ -534,7 +542,11 @@ Namespace statics
                 Try
                     CreateHashTables()
                 Catch ex As Exception
-                    MsgBox("CreateHashTables " & ex.Message)
+                    If ErrorLog.IsEnabled Then
+                        ErrorLog.Report(ex, "ModuleStatics.LoadData")
+                    Else
+                        MsgBox("CreateHashTables " & ex.Message)
+                    End If
                 End Try
 
             End If

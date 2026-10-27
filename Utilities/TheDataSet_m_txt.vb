@@ -1,5 +1,5 @@
 '------------------------------------------------
-'Name: Module gen_TheDataSet_m_grp.vb.
+'Name: Module gen_TheDataSet_m_txt.vb.
 'Function: 
 'Copyright Robin Baines 2008. All rights reserved.
 'Created 7/8/2012 12:00:00 AM.
@@ -9,27 +9,33 @@
 Imports Utilities
 Imports System.Windows.Forms
 Imports System.Drawing
-Public Class TheDataSet_m_grp
+Public Class TheDataSet_m_txt
 Inherits dgColumns
-Friend WithEvents dggrp As System.Windows.Forms.DataGridViewTextBoxColumn
+Friend WithEvents dgtxt As System.Windows.Forms.DataGridViewTextBoxColumn
+Friend WithEvents dgdescr As System.Windows.Forms.DataGridViewTextBoxColumn
+Friend WithEvents dgtyp As System.Windows.Forms.DataGridViewTextBoxColumn
 Public Sub New(ByVal strForm As String, ByVal _bs As BindingSource, ByVal _dg As dgvEnter, _
-ByVal _ta As TheDataSetTableAdapters.m_grpTableAdapter, _
+ByVal _ta As TheDataSetTableAdapters.m_txtTableAdapter, _
 ByVal _ds As DataSet, _
 ByVal _components As System.ComponentModel.Container, _
 ByVal _MainDefs As MainDefinitions, _
 ByVal blnRO As Boolean, _
 ByVal _Controls As Control.ControlCollection, ByVal _frmStandard As frmStandard, _
 ByVal blnFilters As Boolean)
-MyBase.New(strForm, "m_grp", _bs, _dg, _ta, _ds, _MainDefs, blnRO, _
-"grp","",_Controls, _frmStandard, blnFilters)
+MyBase.New(strForm, "m_txt", _bs, _dg, _ta, _ds, _MainDefs, blnRO, _
+"txt","",_Controls, _frmStandard, blnFilters)
 _ta.Connection.ConnectionString = GetConnectionString()
 End Sub
 Public Overrides Sub Createcolumns()
-dggrp = New System.Windows.Forms.DataGridViewTextBoxColumn
+dgtxt = New System.Windows.Forms.DataGridViewTextBoxColumn
+dgdescr = New System.Windows.Forms.DataGridViewTextBoxColumn
+dgtyp = New System.Windows.Forms.DataGridViewTextBoxColumn
 End Sub
 Public Overrides Sub Adjustcolumns(ByVal blnAdjustWidth As Boolean)
  MyBase.Adjustcolumns(blnAdjustWidth)
-DefineColumn(dggrp, "grp", blnRO, ds.m_grp.grpColumn.MaxLength)
+DefineColumn(dgtxt, "txt", blnRO, ds.m_txt.txtColumn.MaxLength)
+DefineColumn(dgdescr, "descr", blnRO, ds.m_txt.descrColumn.MaxLength)
+DefineColumn(dgtyp, "typ", blnRO, ds.m_txt.typColumn.MaxLength)
 PutColumnsInGrid()
 AdjustDataGridWidth(blnAdjustWidth)
 RefreshCombos()
@@ -42,12 +48,16 @@ End sub
 #Region "Editing"
 Public Overrides Sub dg_UserDeletingRow(ByVal sender As System.Object, ByVal e As System.Windows.Forms.DataGridViewRowCancelEventArgs)
 Try
-Dim tadap As TheDataSetTableAdapters.m_grpTableAdapter
-tadap = CType(ta, TheDataSetTableAdapters.m_grpTableAdapter)
-tadap.Delete(e.Row.Cells(dg.Columns("grp").Index).Value.ToString())
+Dim tadap As TheDataSetTableAdapters.m_txtTableAdapter
+tadap = CType(ta, TheDataSetTableAdapters.m_txtTableAdapter)
+tadap.Delete(e.Row.Cells(dg.Columns("txt").Index).Value.ToString())
 MyBase.dg_UserDeletingRow(sender, e)
 Catch ex As Exception
-MsgBox("Delete failed. Most common cause is that record is in use in another table." + ex.message)
+If ErrorLog.IsEnabled Then
+    ErrorLog.Report(ex, "TheDataSet_m_txt.dg_UserDeletingRow", hint:="Delete failed. Most common cause is that record is in use in another table.")
+Else
+    MsgBox("Delete failed. Most common cause is that record is in use in another table." + ex.message)
+End If
 e.Cancel = True
 End Try
 End Sub
@@ -57,9 +67,13 @@ End Sub
 #Region "Filter"
 Public Overrides Sub CreateFilterBoxes(ByVal _Controls As Control.ControlCollection)
 MyBase.CreateFilterBoxes(_Controls)
-CreateAFilterBox(tbgrpFind, "grp", AddressOf tbFind_TextChanged, _Controls)
+CreateAFilterBox(tbtxtFind, "txt", AddressOf tbFind_TextChanged, _Controls)
+CreateAFilterBox(tbdescrFind, "descr", AddressOf tbFind_TextChanged, _Controls)
+CreateAFilterBox(tbtypFind, "typ", AddressOf tbFind_TextChanged, _Controls)
 End Sub
-Friend WithEvents tbgrpFind As System.Windows.Forms.TextBox
+Friend WithEvents tbtxtFind As System.Windows.Forms.TextBox
+Friend WithEvents tbdescrFind As System.Windows.Forms.TextBox
+Friend WithEvents tbtypFind As System.Windows.Forms.TextBox
 Private Sub cbFind_CheckChanged(ByVal sender As System.Object, ByVal e As System.EventArgs)
 MakeFilter(False)
 End Sub

@@ -289,7 +289,11 @@ Public Class PrinterLocal
             ClosePrinter(hPrinter)
             blnRet = True
         Catch ex As Exception
-            MsgBox("Error occurred: " & ex.ToString)
+            If ErrorLog.IsEnabled Then
+                ErrorLog.Report(ex, "PrinterLocal.PrintRaw")
+            Else
+                MsgBox("Error occurred: " & ex.ToString)
+            End If
             blnRet = False
         Finally
             Marshal.FreeCoTaskMem(dataToSend)

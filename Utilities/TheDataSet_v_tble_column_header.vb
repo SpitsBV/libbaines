@@ -69,7 +69,11 @@ iComboCount = 0
                 fManage.Fills()
             End If
         Catch ex As Exception
-            MsgBox("Delete failed. Most common cause is that record is in use in another table." + ex.Message)
+            If ErrorLog.IsEnabled Then
+                ErrorLog.Report(ex, "TheDataSet_v_tble_column_header.dg_UserDeletingRow", hint:="Delete failed. Most common cause is that record is in use in another table.")
+            Else
+                MsgBox("Delete failed. Most common cause is that record is in use in another table." + ex.Message)
+            End If
             e.Cancel = True
         End Try
     End Sub

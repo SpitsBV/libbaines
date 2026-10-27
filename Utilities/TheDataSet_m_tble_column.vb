@@ -70,7 +70,11 @@ Inherits dgColumns
             tadap.Delete(e.Row.Cells(dg.Columns("tble").Index).Value.ToString(), e.Row.Cells(dg.Columns("colmn").Index).Value.ToString())
             MyBase.dg_UserDeletingRow(sender, e)
         Catch ex As Exception
-            MsgBox("Delete failed. Most common cause is that record is in use in another table." + ex.message)
+            If ErrorLog.IsEnabled Then
+                ErrorLog.Report(ex, "TheDataSet_m_tble_column.dg_UserDeletingRow", hint:="Delete failed. Most common cause is that record is in use in another table.")
+            Else
+                MsgBox("Delete failed. Most common cause is that record is in use in another table." + ex.message)
+            End If
             e.Cancel = True
         End Try
     End Sub

@@ -489,7 +489,11 @@ Public Class frmStandard
                 End If
             End If
         Catch ex As Exception
-            MsgBox(ex.Message)
+            If ErrorLog.IsEnabled Then
+                ErrorLog.Report(ex, "frmStandard.DeSelectedFont")
+            Else
+                MsgBox(ex.Message)
+            End If
         End Try
     End Sub
 #End Region
@@ -925,7 +929,11 @@ Public Class frmStandard
             End If
 
         Catch ex As Exception
-            MsgBox("Could not create report." & ex.Message)
+            If ErrorLog.IsEnabled Then
+                ErrorLog.Report(ex, "frmStandard.PrintToExcel", hint:="Could not create report.")
+            Else
+                MsgBox("Could not create report." & ex.Message)
+            End If
         Finally
             Me.Cursor = cur
         End Try
@@ -1166,7 +1174,11 @@ Public Class frmStandard
 
             End If
         Catch ex As Exception
-            MsgBox(ex.Message)
+            If ErrorLog.IsEnabled Then
+                ErrorLog.Report(ex, "frmStandard.TranslateGroupBoxCtrls")
+            Else
+                MsgBox(ex.Message)
+            End If
         End Try
 
     End Sub
@@ -1348,7 +1360,11 @@ Public Class frmStandard
                 End If
             End If
         Catch ex As Exception
-            MsgBox(ex.Message)
+            If ErrorLog.IsEnabled Then
+                ErrorLog.Report(ex, "frmStandard.CreateLabelAndTextBoxTooltips")
+            Else
+                MsgBox(ex.Message)
+            End If
         End Try
 
     End Sub
@@ -1413,7 +1429,11 @@ Public Class frmStandard
                 Next
             End If
         Catch ex As Exception
-            MsgBox(ex.Message)
+            If ErrorLog.IsEnabled Then
+                ErrorLog.Report(ex, "frmStandard.CreateTooltips")
+            Else
+                MsgBox(ex.Message)
+            End If
         End Try
     End Sub
 
@@ -1445,7 +1465,11 @@ Public Class frmStandard
             End If
 
         Catch ex As Exception
-            MsgBox(ex.Message)
+            If ErrorLog.IsEnabled Then
+                ErrorLog.Report(ex, "frmStandard.CreateTooltips")
+            Else
+                MsgBox(ex.Message)
+            End If
         End Try
     End Sub
 
