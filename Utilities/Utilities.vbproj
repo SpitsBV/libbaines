@@ -151,10 +151,10 @@
     <Compile Include="frmOptions.vb">
       <SubType>Form</SubType>
     </Compile>
-    <Compile Include="gen_m_app_log.vb" />
-    <Compile Include="gen_TheDataSet_m_form.vb" />
-    <Compile Include="gen_TheDataSet_m_format.vb" />
-    <Compile Include="gen_TheDataSet_m_form_grp_groupbox.vb" />
+    <Compile Include="m_app_log.vb" />
+    <Compile Include="TheDataSet_m_form.vb" />
+    <Compile Include="TheDataSet_m_format.vb" />
+    <Compile Include="TheDataSet_m_form_grp_groupbox.vb" />
     <Compile Include="MetaDataSet.Designer.vb">
       <AutoGen>True</AutoGen>
       <DesignTime>True</DesignTime>
@@ -198,16 +198,16 @@
     </Compile>
     <Compile Include="RegExUtilities.vb" />
     <Compile Include="TheDataSet_m_form_tble_column__visibility.vb" />
-    <Compile Include="gen_TheDataSet_m_lang.vb" />
-    <Compile Include="gen_TheDataSet_m_txt.vb" />
+    <Compile Include="TheDataSet_m_lang.vb" />
+    <Compile Include="TheDataSet_m_txt.vb" />
     <Compile Include="TheDataSet_m_usr.vb" />
-    <Compile Include="gen_TheDataSet_m_usr_log.vb" />
+    <Compile Include="TheDataSet_m_usr_log.vb" />
     <Compile Include="TheDataSet_v_txt_header.vb" />
     <Compile Include="gen_TheDataSet_v_usr_log.vb" />
     <Compile Include="TheDataSet_m_form_grp.vb" />
     <Compile Include="TheDataSet_m_form_tble.vb" />
-    <Compile Include="gen_TheDataSet_m_grp.vb" />
-    <Compile Include="gen_TheDataSet_m_tble.vb" />
+    <Compile Include="TheDataSet_m_grp.vb" />
+    <Compile Include="TheDataSet_m_tble.vb" />
     <Compile Include="TheDataSet_m_tble_column.vb" />
     <Compile Include="TheDataSet_v_tble_column_header.vb" />
     <Compile Include="MainDefinitions.vb" />
