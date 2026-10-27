@@ -104,10 +104,14 @@ Public Class ErrorLogReplayTests
 
     ' 8144 (too many arguments) and 2812 (no such proc): the database still runs an older
     ' p_insert_error_log. The line must wait for the uo-sql publish, not be rejected.
+    ' -2, 1205 and 40501 are transient and wait for the next replay too.
     <TestMethod>
     Public Sub Replay_ConnectionOrProcError_StopsAndKeepsRest()
         For Each c As Tuple(Of Integer, String) In {
                 Tuple.Create(53, "database unreachable"),
+                Tuple.Create(-2, "database busy"),
+                Tuple.Create(1205, "database busy"),
+                Tuple.Create(40501, "database busy"),
                 Tuple.Create(8144, "p_insert_error_log cannot take it yet"),
                 Tuple.Create(2812, "p_insert_error_log cannot take it yet")}
             Rewire()

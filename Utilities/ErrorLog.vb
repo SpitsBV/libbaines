@@ -264,12 +264,13 @@ Public NotInheritable Class ErrorLog
                     processed.Add(line)
                 Catch writeEx As Exception
                     Dim sqlEx As SqlException = FindSqlException(writeEx)
-                    If sqlEx IsNot Nothing AndAlso (IsConnectionError(sqlEx) OrElse IsProcNotReady(sqlEx)) Then
-                        ' Database unreachable, or its p_insert_error_log is older than this client
-                        ' (GUI released before the uo-sql publish): keep this line and the rest for
-                        ' the next replay.
+                    If sqlEx IsNot Nothing AndAlso (IsConnectionError(sqlEx) OrElse IsTransientError(sqlEx) OrElse IsProcNotReady(sqlEx)) Then
+                        ' Database unreachable or busy, or its p_insert_error_log is older than this
+                        ' client (GUI released before the uo-sql publish): keep this line and the rest
+                        ' for the next replay.
                         WriteReplayFailure(fallback, "Replay stopped at local code " & line.Entry.LocalRef & ", " &
-                            If(IsConnectionError(sqlEx), "database unreachable", "p_insert_error_log cannot take it yet"), writeEx)
+                            If(IsConnectionError(sqlEx), "database unreachable",
+                               If(IsTransientError(sqlEx), "database busy", "p_insert_error_log cannot take it yet")), writeEx)
                         Exit For
                     End If
                     rejected.Add(line)
@@ -365,6 +366,12 @@ Public NotInheritable Class ErrorLog
 
     Private Shared Function IsConnectionError(sqlEx As SqlException) As Boolean
         Return Array.IndexOf(ConnectionErrorNumbers, sqlEx.Number) >= 0
+    End Function
+
+    ' -2 timeout, 1205 deadlock victim, 40501 service busy: the database was reached but the write
+    ' may succeed next time. Replay only; Report keeps showing LogFailedText for these.
+    Private Shared Function IsTransientError(sqlEx As SqlException) As Boolean
+        Return sqlEx.Number = -2 OrElse sqlEx.Number = 1205 OrElse sqlEx.Number = 40501
     End Function
 
     ' 8144 too many arguments, 2812 procedure not found: the database runs an older (or no)
