@@ -106,8 +106,22 @@ Public NotInheritable Class ErrorLog
     Public Shared Function Report(ex As Exception, context As String,
                                   Optional showMessage As Boolean = True,
                                   Optional hint As String = Nothing) As Integer?
+        Return ReportCore(ex, context, showMessage, hint, False)
+    End Function
+
+    ''' <summary>
+    ''' CH-238: the heartbeat lost the database (HeartbeatBackoff.IsConnectionFailure, a timeout
+    ''' included). Like Report, but never writes: the entry is queued under a local code and the user
+    ''' gets ConnectionFailedText, so the UI does not wait for the writer's timeouts. Never throws.
+    ''' </summary>
+    Friend Shared Sub ReportConnectionLost(ex As Exception, context As String)
+        ReportCore(ex, context, True, Nothing, True)
+    End Sub
+
+    Private Shared Function ReportCore(ex As Exception, context As String, showMessage As Boolean,
+                                       hint As String, unreachable As Boolean) As Integer?
         Dim logId As Integer? = Nothing
-        Dim text As String = Process(ex, context, hint, logId)
+        Dim text As String = Process(ex, context, hint, logId, unreachable)
         If showMessage AndAlso text IsNot Nothing AndAlso Not _showing Then
             _showing = True
             Try
@@ -135,7 +149,7 @@ Public NotInheritable Class ErrorLog
     ' Shared path of Report and ReportText: logs when enabled, returns the text to show
     ' (Nothing when there is none) and the error code when a row was written. Never throws.
     Private Shared Function Process(ex As Exception, context As String, hint As String,
-                                    ByRef logId As Integer?) As String
+                                    ByRef logId As Integer?, Optional unreachable As Boolean = False) As String
         logId = Nothing
         If ex Is Nothing Then Return Nothing
         Try
@@ -152,7 +166,7 @@ Public NotInheritable Class ErrorLog
             Dim text As String
             _reporting = True
             Try
-                If IsConnectionError(sqlEx) Then
+                If unreachable OrElse IsConnectionError(sqlEx) Then
                     ' CH-238: the database is unreachable, so a write would only wait for its connect
                     ' timeout while the user waits for the message. Queue it; the replay at the next
                     ' start delivers it.

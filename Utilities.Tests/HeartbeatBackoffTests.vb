@@ -57,4 +57,38 @@ Public Class HeartbeatBackoffTests
         Assert.IsFalse(HeartbeatBackoff.IsConnectionFailure(New InvalidOperationException("boom")))
     End Sub
 
+    ' OnFailure is the catch of both the heartbeat and the auto-logout read: whichever sees the first
+    ' failure of an outage reports it, without a write to the database.
+    <TestMethod>
+    Public Sub OnFailure_FirstFailureOnEitherPath_ReportedOnceWithoutWrite()
+        Dim writer As New FakeWriter()
+        Dim presenter As New FakePresenter()
+        Dim queue As New FakePendingQueue()
+        ErrorLog.Reset()
+        ErrorLog.SetSeams(writer, presenter, New FakeFallback(), queue)
+        ErrorLog.Configure("Data Source=.;Initial Catalog=x;Integrated Security=True", "UPLUS", "9.8.7")
+        Try
+            Dim backoff As New HeartbeatBackoff(TimeSpan.FromSeconds(30))
+
+            Assert.IsTrue(backoff.OnFailure(SqlExceptionFactory.Create(-2), T0, "MainForm.TimerInMainThread"))
+            Assert.IsTrue(backoff.OnFailure(SqlExceptionFactory.Create(-2), T0.AddSeconds(31), "MainForm.CheckSemaphoreTable"))
+
+            Assert.AreEqual(1, presenter.CallCount, "reported once per outage")
+            StringAssert.StartsWith(presenter.Shown(0), ErrorLog.ConnectionFailedText)
+            Assert.AreEqual(0, writer.CallCount)
+            Assert.AreEqual(1, queue.Entries.Length)
+            Assert.IsTrue(backoff.ShouldSkip(T0.AddSeconds(32)))
+        Finally
+            ErrorLog.Reset()
+        End Try
+    End Sub
+
+    <TestMethod>
+    Public Sub OnFailure_OtherError_FalseAndNoBackoff()
+        Dim backoff As New HeartbeatBackoff(TimeSpan.FromSeconds(30))
+
+        Assert.IsFalse(backoff.OnFailure(SqlExceptionFactory.Create(547), T0, "ctx"))
+        Assert.IsFalse(backoff.ShouldSkip(T0.AddSeconds(1)))
+    End Sub
+
 End Class

@@ -36,6 +36,16 @@ Friend NotInheritable Class HeartbeatBackoff
     End Sub
 
     ''' <summary>
+    ''' Catch of every heartbeat read (semaphores, auto logout): backs off on a connection failure and
+    ''' reports the first one of an outage without writing to the database. False for other errors.
+    ''' </summary>
+    Public Function OnFailure(ex As Exception, now As DateTime, context As String) As Boolean
+        If Not IsConnectionFailure(ex) Then Return False
+        If Failed(now) AndAlso ErrorLog.IsEnabled Then ErrorLog.ReportConnectionLost(ex, context)
+        Return True
+    End Function
+
+    ''' <summary>
     ''' A connection error as ErrorLog classifies it, or a timeout (-2): either way the heartbeat
     ''' blocked the UI and should back off.
     ''' </summary>

@@ -1501,10 +1501,7 @@ ByVal e As UnhandledExceptionEventArgs)
         Catch ex As Exception
             ' CH-238: a lost connection is reported once per outage (an F-code when logging is on);
             ' other heartbeat failures stay silent as before.
-            If HeartbeatBackoff.IsConnectionFailure(ex) AndAlso _heartbeatBackoff.Failed(DateTime.UtcNow) AndAlso
-               ErrorLog.IsEnabled Then
-                ErrorLog.Report(ex, "MainForm.CheckSemaphoreTable")
-            End If
+            _heartbeatBackoff.OnFailure(ex, DateTime.UtcNow, "MainForm.CheckSemaphoreTable")
         End Try
 
     End Sub
@@ -1724,10 +1721,9 @@ ByVal e As UnhandledExceptionEventArgs)
                             SQLStatus = statics.StatusValues.OK
                         Catch ex As Exception
                             SQLStatus = statics.StatusValues.NOK
-                            If HeartbeatBackoff.IsConnectionFailure(ex) Then
-                                ' CH-238: lost connection, keep auto logout and back off.
-                                _heartbeatBackoff.Failed(DateTime.UtcNow)
-                            Else
+                            ' CH-238: on a lost connection keep auto logout and back off; the first
+                            ' failure of an outage is reported, also when it is caught here.
+                            If Not _heartbeatBackoff.OnFailure(ex, DateTime.UtcNow, "MainForm.TimerInMainThread") Then
                                 iAutoLogout = -1
                             End If
                         End Try

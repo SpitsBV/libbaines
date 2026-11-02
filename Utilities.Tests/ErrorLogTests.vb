@@ -510,6 +510,31 @@ Public Class ErrorLogTests
         Assert.AreEqual(FailedText("custom connection text"), _presenter.Shown(0))
     End Sub
 
+    <TestMethod>
+    Public Sub ReportConnectionLost_Timeout_DoesNotWrite_ShowsConnectionFailedTextAndLocalCode()
+        ConfigureLogging()
+
+        ErrorLog.ReportConnectionLost(SqlExceptionFactory.Create(-2), "MainForm.CheckSemaphoreTable")
+
+        Assert.AreEqual(0, _writer.CallCount, "no write to an unreachable database")
+        Assert.AreEqual(1, _presenter.CallCount)
+        Assert.AreEqual(FailedText(ErrorLog.ConnectionFailedText), _presenter.Shown(0))
+        Assert.AreEqual(-2, _queue.Entries(0).SqlNumber)
+        StringAssert.Matches(_queue.Entries(0).LocalRef, New Regex("^F\d{14}[0-9A-F]{4}$"))
+    End Sub
+
+    <TestMethod>
+    Public Sub ReportConnectionLost_WhileShowing_QueuesButDoesNotStackADialog()
+        ConfigureLogging()
+        _presenter.OnShow = Sub(t) ErrorLog.ReportConnectionLost(SqlExceptionFactory.Create(-2), "inner")
+
+        ErrorLog.ReportConnectionLost(SqlExceptionFactory.Create(-2), "outer")
+
+        Assert.AreEqual(1, _presenter.CallCount)
+        Assert.AreEqual(2, _queue.Entries.Length)
+        Assert.AreEqual(0, _writer.CallCount)
+    End Sub
+
     ' ------------------------------------------------------------------
     ' 6. Writer throws, non-connection error (number 547)
     ' ------------------------------------------------------------------
