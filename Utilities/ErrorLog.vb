@@ -28,9 +28,10 @@ Public NotInheritable Class ErrorLog
     ' b_error_sql_number: when the database is down there is no mapping to read. -2 (timeout) is
     ' not one of them: it is a slow command on a live database as often, and maps to 9003.
     ' CH-238: 258 wait timeout, 1225 refused, 1232 host unreachable, 1236 connection aborted (a
-    ' firewall dropping an established connection surfaces as 1236).
+    ' firewall dropping an established connection surfaces as 1236), 10061 refused as a socket
+    ' error (System.Data.SqlClient on .NET Framework reports a refused port as 1225 instead).
     Private Shared ReadOnly ConnectionErrorNumbers As Integer() =
-        {-1, 2, 26, 40, 53, 64, 121, 233, 258, 1225, 1231, 1232, 1236, 4060, 10051, 10053, 10054, 10060, 10065, 11001, 18456, 40613}
+        {-1, 2, 26, 40, 53, 64, 121, 233, 258, 1225, 1231, 1232, 1236, 4060, 10051, 10053, 10054, 10060, 10061, 10065, 11001, 18456, 40613}
 
     Private Shared ReadOnly _sync As New Object()
     Private Shared _enabled As Boolean

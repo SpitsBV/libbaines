@@ -1034,7 +1034,7 @@ Public Class ErrorLogTests
 
     ' Mirrors ErrorLog.ConnectionErrorNumbers and the 9002 rows of b_error_sql_number.
     Private Shared ReadOnly ConnectionNumbers As Integer() =
-        {-1, 2, 26, 40, 53, 64, 121, 233, 258, 1225, 1231, 1232, 1236, 4060, 10051, 10053, 10054, 10060, 10065, 11001, 18456, 40613}
+        {-1, 2, 26, 40, 53, 64, 121, 233, 258, 1225, 1231, 1232, 1236, 4060, 10051, 10053, 10054, 10060, 10061, 10065, 11001, 18456, 40613}
 
     <TestMethod>
     Public Sub Report_ConnectionError_SkipsWriter_QueuesLocally_ShowsConnectionTextQuickly()
