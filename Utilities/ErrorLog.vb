@@ -27,8 +27,10 @@ Public NotInheritable Class ErrorLog
     ' SQL error numbers that mean the database could not be reached. Mirrors the 9002 rows in
     ' b_error_sql_number: when the database is down there is no mapping to read. -2 (timeout) is
     ' not one of them: it is a slow command on a live database as often, and maps to 9003.
+    ' CH-238: 258 wait timeout, 1225 refused, 1232 host unreachable, 1236 connection aborted (a
+    ' firewall dropping an established connection surfaces as 1236).
     Private Shared ReadOnly ConnectionErrorNumbers As Integer() =
-        {-1, 2, 26, 40, 53, 64, 121, 233, 1231, 4060, 10051, 10053, 10054, 10060, 10065, 11001, 18456, 40613}
+        {-1, 2, 26, 40, 53, 64, 121, 233, 258, 1225, 1231, 1232, 1236, 4060, 10051, 10053, 10054, 10060, 10065, 11001, 18456, 40613}
 
     Private Shared ReadOnly _sync As New Object()
     Private Shared _enabled As Boolean
@@ -179,9 +181,11 @@ Public NotInheritable Class ErrorLog
                 End If
             Catch writeEx As Exception
                 ' The text follows the write failure: the database being unreachable is what the user
-                ' needs to know, whatever the original exception was.
+                ' needs to know, whatever the original exception was. A writer timeout (-2) means the
+                ' database did not answer, so it counts as unreachable here.
+                Dim writeSqlEx As SqlException = FindSqlException(writeEx)
                 text = QueueLocally(entry, "Logging to the database failed: " & writeEx.ToString(),
-                                    IsConnectionError(FindSqlException(writeEx)))
+                                    IsConnectionError(writeSqlEx) OrElse (writeSqlEx IsNot Nothing AndAlso writeSqlEx.Number = -2))
             Finally
                 _reporting = False
             End Try
@@ -403,7 +407,7 @@ Public NotInheritable Class ErrorLog
     End Function
 
     ' -2 timeout, 1205 deadlock victim, 40501 service busy: the database was reached but the write
-    ' may succeed next time. Replay only; Report keeps showing LogFailedText for these.
+    ' may succeed next time. Replay only; Report shows LogFailedText for 1205 and 40501.
     Private Shared Function IsTransientError(sqlEx As SqlException) As Boolean
         Return sqlEx.Number = -2 OrElse sqlEx.Number = 1205 OrElse sqlEx.Number = 40501
     End Function
