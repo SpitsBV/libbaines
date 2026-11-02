@@ -25,9 +25,10 @@ Public NotInheritable Class ErrorLog
         "Error code: {0} (saved on this computer). Pass this code on to the administrator."
 
     ' SQL error numbers that mean the database could not be reached. Mirrors the 9002 rows in
-    ' b_error_sql_number: when the database is down there is no mapping to read.
+    ' b_error_sql_number: when the database is down there is no mapping to read. -2 (timeout) is
+    ' not one of them: it is a slow command on a live database as often, and maps to 9003.
     Private Shared ReadOnly ConnectionErrorNumbers As Integer() =
-        {-1, 2, 53, 233, 4060, 10053, 10054, 10060, 18456, 40613}
+        {-1, 2, 26, 40, 53, 64, 121, 233, 1231, 4060, 10051, 10053, 10054, 10060, 10065, 11001, 18456, 40613}
 
     Private Shared ReadOnly _sync As New Object()
     Private Shared _enabled As Boolean
@@ -47,6 +48,9 @@ Public NotInheritable Class ErrorLog
     Private Shared _replayAgain As Integer
 
     <ThreadStatic> Private Shared _reporting As Boolean
+    ' CH-238: True while Report shows a message on this thread. The dialog pumps messages, so a
+    ' timer tick can Report again from inside it; that Report logs but does not stack a dialog.
+    <ThreadStatic> Private Shared _showing As Boolean
 
     Private Sub New()
     End Sub
@@ -104,11 +108,14 @@ Public NotInheritable Class ErrorLog
                                   Optional hint As String = Nothing) As Integer?
         Dim logId As Integer? = Nothing
         Dim text As String = Process(ex, context, hint, logId)
-        If showMessage AndAlso text IsNot Nothing Then
+        If showMessage AndAlso text IsNot Nothing AndAlso Not _showing Then
+            _showing = True
             Try
                 _presenter.Show(text)
             Catch showEx As Exception
                 WriteLastResort(ex, context, showEx)
+            Finally
+                _showing = False
             End Try
         End If
         Return logId
@@ -145,35 +152,22 @@ Public NotInheritable Class ErrorLog
             Dim text As String
             _reporting = True
             Try
-                Dim result As ErrorLogResult = _writer.Write(entry)
-                logId = result.ErrorLogId
-                text = result.UserMessage & vbCrLf & vbCrLf &
-                       String.Format(ErrorCodeText, result.ErrorLogId)
+                If IsConnectionError(sqlEx) Then
+                    ' CH-238: the database is unreachable, so a write would only wait for its connect
+                    ' timeout while the user waits for the message. Queue it; the replay at the next
+                    ' start delivers it.
+                    text = QueueLocally(entry, "Database unreachable, not written to the database.", True)
+                Else
+                    Dim result As ErrorLogResult = _writer.Write(entry)
+                    logId = result.ErrorLogId
+                    text = result.UserMessage & vbCrLf & vbCrLf &
+                           String.Format(ErrorCodeText, result.ErrorLogId)
+                End If
             Catch writeEx As Exception
-                Dim localRef As String = NewLocalRef()
-                entry.LocalRef = localRef
-                entry.CreatedUtc = DateTime.UtcNow
-                Dim queueFailure As String = ""
-                Try
-                    _queue.Append(entry)
-                Catch queueEx As Exception
-                    ' Queue file locked or unwritable: the readable fallback below still holds the
-                    ' entry and its local code.
-                    queueFailure = Environment.NewLine & "Queueing the entry failed: " & queueEx.ToString()
-                End Try
-                Try
-                    _fallback.Write(entry.ToString() & Environment.NewLine &
-                                    "Logging to the database failed: " & writeEx.ToString() & queueFailure)
-                Catch fallbackEx As Exception
-                    ' The fallback file is unavailable too; the user must still be informed.
-                    Debug.WriteLine("ErrorLog: fallback failed for local code " & localRef & queueFailure &
-                                    Environment.NewLine & fallbackEx.ToString())
-                End Try
                 ' The text follows the write failure: the database being unreachable is what the user
                 ' needs to know, whatever the original exception was.
-                Dim writeSqlEx As SqlException = FindSqlException(writeEx)
-                text = If(writeSqlEx IsNot Nothing AndAlso IsConnectionError(writeSqlEx), ConnectionFailedText, LogFailedText) &
-                       vbCrLf & vbCrLf & String.Format(LocalCodeText, localRef)
+                text = QueueLocally(entry, "Logging to the database failed: " & writeEx.ToString(),
+                                    IsConnectionError(FindSqlException(writeEx)))
             Finally
                 _reporting = False
             End Try
@@ -183,6 +177,31 @@ Public NotInheritable Class ErrorLog
             WriteLastResort(ex, context, reportEx)
             Return Nothing
         End Try
+    End Function
+
+    ' Queues entry under a new local code, writes the readable fallback and returns the text for the
+    ' user: ConnectionFailedText when the database is unreachable, else LogFailedText.
+    Private Shared Function QueueLocally(entry As ErrorLogEntry, failure As String, unreachable As Boolean) As String
+        Dim localRef As String = NewLocalRef()
+        entry.LocalRef = localRef
+        entry.CreatedUtc = DateTime.UtcNow
+        Dim queueFailure As String = ""
+        Try
+            _queue.Append(entry)
+        Catch queueEx As Exception
+            ' Queue file locked or unwritable: the readable fallback below still holds the
+            ' entry and its local code.
+            queueFailure = Environment.NewLine & "Queueing the entry failed: " & queueEx.ToString()
+        End Try
+        Try
+            _fallback.Write(entry.ToString() & Environment.NewLine & failure & queueFailure)
+        Catch fallbackEx As Exception
+            ' The fallback file is unavailable too; the user must still be informed.
+            Debug.WriteLine("ErrorLog: fallback failed for local code " & localRef & queueFailure &
+                            Environment.NewLine & fallbackEx.ToString())
+        End Try
+        Return If(unreachable, ConnectionFailedText, LogFailedText) &
+               vbCrLf & vbCrLf & String.Format(LocalCodeText, localRef)
     End Function
 
     Private Shared Function WithHint(hint As String, text As String) As String
@@ -364,8 +383,9 @@ Public NotInheritable Class ErrorLog
         Return entry
     End Function
 
-    Private Shared Function IsConnectionError(sqlEx As SqlException) As Boolean
-        Return Array.IndexOf(ConnectionErrorNumbers, sqlEx.Number) >= 0
+    ' False for Nothing.
+    Friend Shared Function IsConnectionError(sqlEx As SqlException) As Boolean
+        Return sqlEx IsNot Nothing AndAlso Array.IndexOf(ConnectionErrorNumbers, sqlEx.Number) >= 0
     End Function
 
     ' -2 timeout, 1205 deadlock victim, 40501 service busy: the database was reached but the write
