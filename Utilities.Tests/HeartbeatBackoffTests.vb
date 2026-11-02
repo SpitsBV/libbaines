@@ -43,6 +43,21 @@ Public Class HeartbeatBackoffTests
         Assert.IsFalse(backoff.ShouldSkip(T0.AddSeconds(1)))
     End Sub
 
+    ' The auto-logout read is gated on IsFailing: it stays True after the period has passed (the
+    ' semaphore read may retry, the auto-logout read waits for that retry to succeed).
+    <TestMethod>
+    Public Sub IsFailing_FromFailureUntilSuccess_AlsoAfterThePeriod()
+        Dim backoff As New HeartbeatBackoff(TimeSpan.FromSeconds(30))
+        Assert.IsFalse(backoff.IsFailing, "no failure yet")
+
+        backoff.Failed(T0)
+        Assert.IsFalse(backoff.ShouldSkip(T0.AddMinutes(4)))
+        Assert.IsTrue(backoff.IsFailing, "period passed, no success yet")
+
+        backoff.Succeeded()
+        Assert.IsFalse(backoff.IsFailing)
+    End Sub
+
     <TestMethod>
     Public Sub IsConnectionFailure_ConnectionNumbersAndTimeout_True()
         For Each number As Integer In New Integer() {-2, -1, 53, 11001, 10065}

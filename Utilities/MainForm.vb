@@ -1664,8 +1664,10 @@ ByVal e As UnhandledExceptionEventArgs)
                         End Try
                     Next
                     'AUTO LOGOUT processing
-                    'CH-238: not while the database is unreachable (the parameters are read from it).
-                    If iAutoLogout <> -1 AndAlso Not _heartbeatBackoff.ShouldSkip(DateTime.UtcNow) Then
+                    'CH-238: only after the semaphore read of this tick succeeded. The parameters are read
+                    'with the default timeouts; a back-off that expired while a dialog was open must not
+                    'let this read block the UI on a dead database.
+                    If iAutoLogout <> -1 AndAlso Not _heartbeatBackoff.IsFailing Then
                         Try
                             'Get the parameter again to enable online modification.
                             Dim strAutoLogout As String = statics.GetParameter("auto_logout")

@@ -31,6 +31,16 @@ Friend NotInheritable Class HeartbeatBackoff
         Return first
     End Function
 
+    ''' <summary>
+    ''' True from a connection failure until the next successful read, also after the period has
+    ''' passed. The auto-logout read uses it to run only after a successful semaphore read.
+    ''' </summary>
+    Public ReadOnly Property IsFailing As Boolean
+        Get
+            Return _failing
+        End Get
+    End Property
+
     Public Sub Succeeded()
         _failing = False
     End Sub
