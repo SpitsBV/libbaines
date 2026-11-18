@@ -100,6 +100,7 @@
     <Compile Include="dgColumns.vb" />
     <Compile Include="ErrorLog.vb" />
     <Compile Include="ErrorLogSeams.vb" />
+    <Compile Include="HeartbeatBackoff.vb" />
     <Compile Include="dgvEnter.vb">
       <SubType>Component</SubType>
     </Compile>

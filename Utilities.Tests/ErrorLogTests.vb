@@ -433,11 +433,9 @@ Public Class ErrorLogTests
     ' ------------------------------------------------------------------
 
     <TestMethod>
-    Public Sub WriterThrows_ConnectionError_WritesFallbackOnce_WithContextMessageAndWriterException()
+    Public Sub ConnectionError_WritesFallbackOnce_WithContextMessageAndReason()
         ConfigureLogging()
         Dim sqlEx As SqlException = SqlExceptionFactory.Create(53, message:="Network path not found")
-        Dim writerEx As New InvalidOperationException("writer exploded")
-        _writer.ThrowOnWrite = writerEx
 
         Dim result As Integer? = ErrorLog.Report(sqlEx, "Form.Load")
 
@@ -446,7 +444,7 @@ Public Class ErrorLogTests
         Dim text As String = _fallback.Written(0)
         StringAssert.Contains(text, "Form.Load")
         StringAssert.Contains(text, sqlEx.Message)
-        StringAssert.Contains(text, "writer exploded")
+        StringAssert.Contains(text, "Database unreachable, not written to the database.")
     End Sub
 
     <TestMethod>
@@ -475,16 +473,31 @@ Public Class ErrorLogTests
 
     <TestMethod>
     Public Sub WriterThrows_AllConnectionNumbers_ShowConnectionFailedText()
-        For Each number As Integer In New Integer() {-1, 2, 53, 233, 4060, 10053, 10054, 10060, 18456, 40613}
+        For Each number As Integer In ConnectionNumbers
             Init()
             ConfigureLogging()
             _writer.ThrowOnWrite = SqlExceptionFactory.Create(number)
 
-            ErrorLog.Report(SqlExceptionFactory.Create(number), "ctx")
+            ' A non-connection original, so the writer is tried and its failure decides the text.
+            ErrorLog.Report(SqlExceptionFactory.Create(547), "ctx")
 
+            Assert.AreEqual(1, _writer.CallCount, "number " & number.ToString())
             Assert.AreEqual(1, _presenter.CallCount, "number " & number.ToString())
             Assert.AreEqual(FailedText(ErrorLog.ConnectionFailedText), _presenter.Shown(0), "number " & number.ToString())
         Next
+    End Sub
+
+    <TestMethod>
+    Public Sub WriterThrows_Timeout_ShowsConnectionFailedText()
+        ' The writer timing out means the database did not answer; the user is told it is unreachable.
+        ConfigureLogging()
+        _writer.ThrowOnWrite = SqlExceptionFactory.Create(-2)
+
+        Dim result As Integer? = ErrorLog.Report(SqlExceptionFactory.Create(547), "ctx")
+
+        Assert.IsFalse(result.HasValue)
+        Assert.AreEqual(1, _writer.CallCount)
+        Assert.AreEqual(FailedText(ErrorLog.ConnectionFailedText), _presenter.Shown(0))
     End Sub
 
     <TestMethod>
@@ -500,16 +513,6 @@ Public Class ErrorLogTests
     End Sub
 
     <TestMethod>
-    Public Sub WriterThrowsNonSql_ConnectionOriginal_ShowsLogFailedText()
-        ConfigureLogging()
-        _writer.ThrowOnWrite = New InvalidOperationException("writer exploded")
-
-        ErrorLog.Report(SqlExceptionFactory.Create(53), "ctx")
-
-        Assert.AreEqual(FailedText(ErrorLog.LogFailedText), _presenter.Shown(0))
-    End Sub
-
-    <TestMethod>
     Public Sub WriterThrows_CustomConnectionFailedText_IsShown()
         ConfigureLogging()
         ErrorLog.ConnectionFailedText = "custom connection text"
@@ -518,6 +521,31 @@ Public Class ErrorLogTests
         ErrorLog.Report(SqlExceptionFactory.Create(53), "ctx")
 
         Assert.AreEqual(FailedText("custom connection text"), _presenter.Shown(0))
+    End Sub
+
+    <TestMethod>
+    Public Sub ReportConnectionLost_Timeout_DoesNotWrite_ShowsConnectionFailedTextAndLocalCode()
+        ConfigureLogging()
+
+        ErrorLog.ReportConnectionLost(SqlExceptionFactory.Create(-2), "MainForm.CheckSemaphoreTable")
+
+        Assert.AreEqual(0, _writer.CallCount, "no write to an unreachable database")
+        Assert.AreEqual(1, _presenter.CallCount)
+        Assert.AreEqual(FailedText(ErrorLog.ConnectionFailedText), _presenter.Shown(0))
+        Assert.AreEqual(-2, _queue.Entries(0).SqlNumber)
+        StringAssert.Matches(_queue.Entries(0).LocalRef, New Regex("^F\d{14}[0-9A-F]{4}$"))
+    End Sub
+
+    <TestMethod>
+    Public Sub ReportConnectionLost_WhileShowing_QueuesButDoesNotStackADialog()
+        ConfigureLogging()
+        _presenter.OnShow = Sub(t) ErrorLog.ReportConnectionLost(SqlExceptionFactory.Create(-2), "inner")
+
+        ErrorLog.ReportConnectionLost(SqlExceptionFactory.Create(-2), "outer")
+
+        Assert.AreEqual(1, _presenter.CallCount)
+        Assert.AreEqual(2, _queue.Entries.Length)
+        Assert.AreEqual(0, _writer.CallCount)
     End Sub
 
     ' ------------------------------------------------------------------
@@ -998,6 +1026,76 @@ Public Class ErrorLogTests
         Assert.AreEqual(defaultConnection, ErrorLog.ConnectionFailedText)
         Assert.AreEqual(defaultLog, ErrorLog.LogFailedText)
         Assert.AreEqual(ErrorLog.DefaultLocalCodeText, ErrorLog.LocalCodeText)
+    End Sub
+
+    ' ------------------------------------------------------------------
+    ' 10. CH-238 hang: the database is unreachable
+    ' ------------------------------------------------------------------
+
+    ' Mirrors ErrorLog.ConnectionErrorNumbers and the 9002 rows of b_error_sql_number.
+    Private Shared ReadOnly ConnectionNumbers As Integer() =
+        {-1, 2, 26, 40, 53, 64, 121, 233, 258, 1225, 1231, 1232, 1236, 4060, 10051, 10053, 10054, 10060, 10061, 10065, 11001, 18456, 40613}
+
+    <TestMethod>
+    Public Sub Report_ConnectionError_SkipsWriter_QueuesLocally_ShowsConnectionTextQuickly()
+        ConfigureLogging()
+        ' A real writer would wait for its connect timeout here.
+        _writer.OnWrite = Sub(entry As ErrorLogEntry) Thread.Sleep(5000)
+
+        Dim watch As Stopwatch = Stopwatch.StartNew()
+        Dim result As Integer? = ErrorLog.Report(SqlExceptionFactory.Create(53), "ctx")
+        watch.Stop()
+
+        Assert.IsTrue(watch.ElapsedMilliseconds < 1000, "took " & watch.ElapsedMilliseconds.ToString() & " ms")
+        Assert.AreEqual(0, _writer.CallCount, "the writer must not be tried")
+        Assert.IsFalse(result.HasValue)
+        Assert.AreEqual(1, _queue.Entries.Length)
+        StringAssert.Matches(_queue.Entries(0).LocalRef, New Regex("^F\d{14}[0-9A-F]{4}$"))
+        Assert.AreEqual(1, _presenter.CallCount)
+        Assert.AreEqual(FailedText(ErrorLog.ConnectionFailedText), _presenter.Shown(0))
+        Assert.AreEqual(1, _fallback.CallCount)
+    End Sub
+
+    <TestMethod>
+    Public Sub Report_EveryConnectionNumber_SkipsWriter()
+        For Each number As Integer In ConnectionNumbers
+            Init()
+            ConfigureLogging()
+
+            ErrorLog.Report(Wrap(SqlExceptionFactory.Create(number), 1), "ctx")
+
+            Assert.AreEqual(0, _writer.CallCount, "number " & number.ToString())
+            Assert.AreEqual(FailedText(ErrorLog.ConnectionFailedText), _presenter.Shown(0), "number " & number.ToString())
+        Next
+    End Sub
+
+    <TestMethod>
+    Public Sub Report_Timeout_StillTriesWriter()
+        ' -2 is a command timeout as often as a lost connection; it maps to 9003 in the database.
+        ConfigureLogging()
+
+        Dim result As Integer? = ErrorLog.Report(SqlExceptionFactory.Create(-2), "ctx")
+
+        Assert.AreEqual(1, _writer.CallCount)
+        Assert.AreEqual(42, result.Value)
+    End Sub
+
+    <TestMethod>
+    Public Sub Report_WhileDialogIsUp_DoesNotStackASecondDialog()
+        ConfigureLogging()
+        Dim inner As Integer? = 0
+        _presenter.OnShow = Sub(text As String)
+                                If _presenter.CallCount = 1 Then inner = ErrorLog.Report(SqlExceptionFactory.Create(547), "inner")
+                            End Sub
+
+        ErrorLog.Report(SqlExceptionFactory.Create(547), "outer")
+
+        Assert.AreEqual(1, _presenter.CallCount, "the inner Report must not show a dialog")
+        Assert.AreEqual(2, _writer.CallCount, "the inner Report is still logged")
+        Assert.AreEqual(42, inner.Value)
+
+        ErrorLog.Report(SqlExceptionFactory.Create(547), "after")
+        Assert.AreEqual(2, _presenter.CallCount, "the guard is released after the dialog")
     End Sub
 
 End Class

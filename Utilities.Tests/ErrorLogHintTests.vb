@@ -80,7 +80,8 @@ Public Class ErrorLogHintTests
                     Writer.ThrowOnWrite = SqlExceptionFactory.Create(53)
                     Ex = If(exOverride, SqlExceptionFactory.Create(53, message:="network path"))
                     BaseText = WithLocalCode(ErrorLog.ConnectionFailedText)
-                    ExpectsWrite = True
+                    ' CH-238: a connection error is queued without trying the writer.
+                    ExpectsWrite = False
                     ExpectsFallback = True
                 Case Row.WriterThrowsOther547
                     ErrorLog.Configure(ConnectionString, "UPLUS", "1.2.3")

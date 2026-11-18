@@ -58,6 +58,9 @@ Friend NotInheritable Class FakePresenter
 
     Friend Property ThrowOnShow As Exception
 
+    ''' <summary>When set, runs inside Show after the text is recorded (re-entrancy tests).</summary>
+    Friend Property OnShow As Action(Of String)
+
     Friend ReadOnly Property Shown As String()
         Get
             Return _shown.ToArray()
@@ -72,6 +75,8 @@ Friend NotInheritable Class FakePresenter
 
     Public Sub Show(text As String) Implements IErrorPresenter.Show
         _shown.Enqueue(text)
+        Dim hook As Action(Of String) = OnShow
+        If hook IsNot Nothing Then hook(text)
         Dim toThrow As Exception = ThrowOnShow
         If toThrow IsNot Nothing Then Throw toThrow
     End Sub

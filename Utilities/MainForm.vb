@@ -1452,6 +1452,8 @@ ByVal e As UnhandledExceptionEventArgs)
     'Keep a copy of the semaphores to compare with the fresh ones.
     Dim CopySemaphoreTable As New TheDataSet.b_semaphoreDataTable
     Friend WithEvents B_semaphoreTableAdapter As TheDataSetTableAdapters.b_semaphoreTableAdapter = New TheDataSetTableAdapters.b_semaphoreTableAdapter
+    ' CH-238: after a lost connection the heartbeat leaves the database alone for this long.
+    Private ReadOnly _heartbeatBackoff As New HeartbeatBackoff(TimeSpan.FromSeconds(30))
 
     Protected Overridable Sub ShowOnScreen(ByVal strApp As String, ByVal strTble As String, ByVal lsemaphore As Long)
 
@@ -1465,8 +1467,11 @@ ByVal e As UnhandledExceptionEventArgs)
     '20110415 Changed to Protected Overridable  from Private because TPITrack needs it to be called but does not
     'call MyBase::TimerInMainThread because no autologout is needed.
     Protected Overridable Sub CheckSemaphoreTable()
+        ' CH-238: the database was unreachable on the last tick; do not block the UI on it again yet.
+        If _heartbeatBackoff.ShouldSkip(DateTime.UtcNow) Then Return
         Try
             Dim semaphoreTable As TheDataSet.b_semaphoreDataTable = Me.B_semaphoreTableAdapter.GetData()
+            _heartbeatBackoff.Succeeded()
 
             'If this is the first time then create the copied version.
             If CopySemaphoreTable.Count <> semaphoreTable.Count Then
@@ -1494,7 +1499,9 @@ ByVal e As UnhandledExceptionEventArgs)
             End If
             'SQLStatus = StatusValues.OK
         Catch ex As Exception
-            'SQLStatus = StatusValues.NOK
+            ' CH-238: a lost connection is reported once per outage (an F-code when logging is on);
+            ' other heartbeat failures stay silent as before.
+            _heartbeatBackoff.OnFailure(ex, DateTime.UtcNow, "MainForm.CheckSemaphoreTable")
         End Try
 
     End Sub
@@ -1573,7 +1580,10 @@ ByVal e As UnhandledExceptionEventArgs)
         Else
             WorkerThread = New Thread(AddressOf RunsOnWorkerThread)
             Me.B_semaphoreTableAdapter.ClearBeforeFill = True
-            Me.B_semaphoreTableAdapter.Connection.ConnectionString = MainDefs.MainForm.GetConnectionString()
+            ' CH-238: short timeouts, the heartbeat runs on the UI thread.
+            Dim heartbeatConnection As New System.Data.SqlClient.SqlConnectionStringBuilder(MainDefs.MainForm.GetConnectionString()) With {.ConnectTimeout = 3}
+            Me.B_semaphoreTableAdapter.Connection.ConnectionString = heartbeatConnection.ConnectionString
+            Me.B_semaphoreTableAdapter.SetCommandTimeout(5)
             WorkerThread.Start()
         End If
     End Sub
@@ -1654,15 +1664,14 @@ ByVal e As UnhandledExceptionEventArgs)
                         End Try
                     Next
                     'AUTO LOGOUT processing
-                    If iAutoLogout <> -1 Then
-
-                        'Get the parameter again to enable online modification.
-                        Dim strAutoLogout As String = ""
-                        strAutoLogout = statics.GetParameter("auto_logout")
-                        Dim strAutoLogoutWarning As String = statics.GetParameter("auto_logout_warning")
+                    'CH-238: only after the semaphore read of this tick succeeded. The parameters are read
+                    'with the default timeouts; a back-off that expired while a dialog was open must not
+                    'let this read block the UI on a dead database.
+                    If iAutoLogout <> -1 AndAlso Not _heartbeatBackoff.IsFailing Then
                         Try
-
-
+                            'Get the parameter again to enable online modification.
+                            Dim strAutoLogout As String = statics.GetParameter("auto_logout")
+                            Dim strAutoLogoutWarning As String = statics.GetParameter("auto_logout_warning")
 
                             'time in minutes.
                             If iAutoLogout <> System.Convert.ToInt32(strAutoLogout) Then
@@ -1713,8 +1722,12 @@ ByVal e As UnhandledExceptionEventArgs)
                             End If
                             SQLStatus = statics.StatusValues.OK
                         Catch ex As Exception
-                            iAutoLogout = -1
                             SQLStatus = statics.StatusValues.NOK
+                            ' CH-238: on a lost connection keep auto logout and back off; the first
+                            ' failure of an outage is reported, also when it is caught here.
+                            If Not _heartbeatBackoff.OnFailure(ex, DateTime.UtcNow, "MainForm.TimerInMainThread") Then
+                                iAutoLogout = -1
+                            End If
                         End Try
                     End If
                 End If
