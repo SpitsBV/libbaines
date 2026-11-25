@@ -73,6 +73,22 @@ Friend NotInheritable Class ErrorLogResult
     Public ReadOnly Property UserMessage As String
 End Class
 
+' CH-238: a connection that must fail fast when the database is unreachable. SqlClient falls back
+' to named pipes after TCP fails, and that fallback ignores ConnectTimeout: with the network gone
+' the UI thread blocked for 9 to 16 s per attempt instead of the configured seconds. Forcing TCP keeps
+' the timeout. An explicit protocol prefix and the local aliases (shared memory) are left alone.
+Friend Module ShortConnection
+    Friend Function Build(connectionString As String, connectTimeoutSeconds As Integer) As String
+        Dim builder As New SqlConnectionStringBuilder(connectionString) With {.ConnectTimeout = connectTimeoutSeconds}
+        Dim source As String = builder.DataSource
+        Dim isLocal As Boolean = source = "." OrElse source.StartsWith("(local", StringComparison.OrdinalIgnoreCase)
+        If source.Length > 0 AndAlso Not isLocal AndAlso Not source.Contains(":") Then
+            builder.DataSource = "tcp:" & source
+        End If
+        Return builder.ConnectionString
+    End Function
+End Module
+
 ' Writes through dbo.p_insert_error_log on its own short-timeout connection, so a failing or busy
 ' application connection (designer adapters, the version check in GetConnectionString) is never reused.
 Friend NotInheritable Class SqlErrorLogWriter
@@ -81,8 +97,7 @@ Friend NotInheritable Class SqlErrorLogWriter
     Private ReadOnly _connectionString As String
 
     Public Sub New(connectionString As String)
-        Dim builder As New SqlConnectionStringBuilder(connectionString) With {.ConnectTimeout = 5}
-        _connectionString = builder.ConnectionString
+        _connectionString = ShortConnection.Build(connectionString, 5)
     End Sub
 
     Public Function Write(entry As ErrorLogEntry) As ErrorLogResult Implements IErrorLogWriter.Write

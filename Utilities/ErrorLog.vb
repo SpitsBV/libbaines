@@ -30,8 +30,10 @@ Public NotInheritable Class ErrorLog
     ' CH-238: 258 wait timeout, 1225 refused, 1232 host unreachable, 1236 connection aborted (a
     ' firewall dropping an established connection surfaces as 1236), 10061 refused as a socket
     ' error (System.Data.SqlClient on .NET Framework reports a refused port as 1225 instead).
+    ' 5 access denied: with TCP forced (ShortConnection) a local firewall block surfaces as
+    ' "TCP Provider, error: 0 - Access is denied" instead of falling back to named pipes.
     Private Shared ReadOnly ConnectionErrorNumbers As Integer() =
-        {-1, 2, 26, 40, 53, 64, 121, 233, 258, 1225, 1231, 1232, 1236, 4060, 10051, 10053, 10054, 10060, 10061, 10065, 11001, 18456, 40613}
+        {-1, 2, 5, 26, 40, 53, 64, 121, 233, 258, 1225, 1231, 1232, 1236, 4060, 10051, 10053, 10054, 10060, 10061, 10065, 11001, 18456, 40613}
 
     Private Shared ReadOnly _sync As New Object()
     Private Shared _enabled As Boolean
