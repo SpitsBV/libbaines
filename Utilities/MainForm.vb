@@ -1580,9 +1580,8 @@ ByVal e As UnhandledExceptionEventArgs)
         Else
             WorkerThread = New Thread(AddressOf RunsOnWorkerThread)
             Me.B_semaphoreTableAdapter.ClearBeforeFill = True
-            ' CH-238: short timeouts, the heartbeat runs on the UI thread.
-            Dim heartbeatConnection As New System.Data.SqlClient.SqlConnectionStringBuilder(MainDefs.MainForm.GetConnectionString()) With {.ConnectTimeout = 3}
-            Me.B_semaphoreTableAdapter.Connection.ConnectionString = heartbeatConnection.ConnectionString
+            ' CH-238: short timeouts over TCP only, the heartbeat runs on the UI thread.
+            Me.B_semaphoreTableAdapter.Connection.ConnectionString = ShortConnection.Build(MainDefs.MainForm.GetConnectionString(), 3)
             Me.B_semaphoreTableAdapter.SetCommandTimeout(5)
             WorkerThread.Start()
         End If

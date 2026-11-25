@@ -60,7 +60,7 @@ Public Class HeartbeatBackoffTests
 
     <TestMethod>
     Public Sub IsConnectionFailure_ConnectionNumbersAndTimeout_True()
-        For Each number As Integer In New Integer() {-2, -1, 53, 11001, 10065}
+        For Each number As Integer In New Integer() {-2, -1, 5, 53, 11001, 10065}
             Assert.IsTrue(HeartbeatBackoff.IsConnectionFailure(
                 New InvalidOperationException("wrapper", SqlExceptionFactory.Create(number))), number.ToString())
         Next
